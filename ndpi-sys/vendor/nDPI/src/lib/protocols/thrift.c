@@ -41,7 +41,7 @@ struct thrift_strict_hdr {
   uint8_t unused_byte_pad;
   uint8_t message_type;
   uint32_t method_length;
-  char method[0];
+  char method[];
 } PACK_OFF;
 
 // TCompactProtocol
@@ -59,7 +59,7 @@ struct thrift_compact_hdr {
 #endif
   uint8_t sequence_id[3];
   uint8_t method_length;
-  char method[0];
+  char method[];
 } PACK_OFF;
 
 enum thrift_message_type {
@@ -257,8 +257,9 @@ static void ndpi_search_thrift_tcp_udp(struct ndpi_detection_module_struct *ndpi
 
 void init_apache_thrift_dissector(struct ndpi_detection_module_struct *ndpi_struct)
 {
-  register_dissector("Thrift", ndpi_struct,
+  ndpi_register_dissector("Thrift", ndpi_struct,
                      ndpi_search_thrift_tcp_udp,
                      NDPI_SELECTION_BITMASK_PROTOCOL_V4_V6_TCP_OR_UDP_WITH_PAYLOAD_WITHOUT_RETRANSMISSION,
+                     DISSECTOR_LICENSE_LGPL,
                      1, NDPI_PROTOCOL_APACHE_THRIFT);
 }

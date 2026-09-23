@@ -2,7 +2,7 @@
  * rdp.c
  *
  * Copyright (C) 2009-11 - ipoque GmbH
- * Copyright (C) 2011-25 - ntop.org
+ * Copyright (C) 2011-26 - ntop.org
  *
  * This file is part of nDPI, an open source deep packet inspection
  * library based on the OpenDPI and PACE technology by ipoque GmbH
@@ -114,6 +114,16 @@ static void ndpi_search_rdp(struct ndpi_detection_module_struct *ndpi_struct,
     }
 
     if( flow->l4.tcp.rdp_protocol_detected) {
+      /* Do not promote an RDP-like request when the server clearly speaks HTTP. */
+      if(!current_pkt_from_client_to_server(ndpi_struct, flow) &&
+         ntohs(packet->tcp->source) != RDP_PORT &&
+         ntohs(packet->tcp->dest) != RDP_PORT &&
+         packet->payload_packet_len >= 5 &&
+         memcmp(packet->payload, "HTTP/", 5) == 0) {
+        NDPI_EXCLUDE_DISSECTOR(ndpi_struct, flow);
+        return;
+      }
+
       /* The first message os RDP but the responseis not */
       ndpi_int_rdp_add_connection(ndpi_struct, flow);
 
@@ -197,8 +207,9 @@ static void ndpi_search_rdp(struct ndpi_detection_module_struct *ndpi_struct,
 
 void init_rdp_dissector(struct ndpi_detection_module_struct *ndpi_struct)
 {
-  register_dissector("RDP", ndpi_struct,
+  ndpi_register_dissector("RDP", ndpi_struct,
                      ndpi_search_rdp,
                      NDPI_SELECTION_BITMASK_PROTOCOL_V4_V6_TCP_OR_UDP_WITH_PAYLOAD_WITHOUT_RETRANSMISSION,
+                     DISSECTOR_LICENSE_LGPL,
                      1, NDPI_PROTOCOL_RDP);
 }

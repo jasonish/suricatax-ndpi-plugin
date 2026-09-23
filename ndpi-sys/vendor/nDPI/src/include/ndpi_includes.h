@@ -1,7 +1,7 @@
 /*
  * ndpi_includes.h
  *
- * Copyright (C) 2011-25 - ntop.org
+ * Copyright (C) 2011-26 - ntop.org
  *
  * This file is part of nDPI, an open source deep packet inspection
  * library based on the OpenDPI and PACE technology by ipoque GmbH
@@ -61,10 +61,6 @@
 
 #endif	/* Win32 */
 
-#if defined __OpenBSD__
-#include "ndpi_includes_OpenBSD.h"
-#else
 typedef struct timeval pkt_timeval;
-#endif /* __OpenBSD__ */
 
 #endif /* __NDPI_INCLUDES_H__ */

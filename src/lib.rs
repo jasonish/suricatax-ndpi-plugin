@@ -25,13 +25,26 @@ use std::mem;
 use std::os::raw::{c_char, c_int};
 use std::ptr;
 
-use ndpi::{DetectionModule, Flow};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use ndpi::{DetectionModule, Direction, Flow, GlobalContext, LicenseType};
 use suricatax80_plugin_utils as suricata;
+
+/// Suricata configuration key selecting the nDPI usage license.
+const LICENSE_CONF_KEY: &str = "ndpi.license";
+
+/// Default nDPI license type. This keeps all dissectors enabled, as with
+/// nDPI 5, and matches the ndpiReader default.
+const DEFAULT_LICENSE: LicenseType = LicenseType::NotForProfit;
 
 static mut THREAD_STORAGE_ID: suricata::ThreadStorageId = suricata::ThreadStorageId { id: -1 };
 static mut FLOW_STORAGE_ID: suricata::FlowStorageId = suricata::FlowStorageId { id: -1 };
 static mut NDPI_PROTOCOL_KEYWORD_ID: c_int = -1;
 static mut NDPI_RISK_KEYWORD_ID: c_int = -1;
+static mut LICENSE: LicenseType = DEFAULT_LICENSE;
+static mut GLOBAL_CONTEXT: Option<GlobalContext> = None;
+/// Set once nDPI produced malformed JSON, so it is only reported once.
+static JSON_DROPPED: AtomicBool = AtomicBool::new(false);
 
 struct ThreadContext {
     ndpi: DetectionModule,
@@ -64,6 +77,17 @@ fn log_notice(message: String) {
     );
 }
 
+pub(crate) fn log_warning(message: String) {
+    suricata::log_message(
+        suricata::SC_LOG_WARNING,
+        "ndpi-plugin",
+        file!(),
+        line!(),
+        "ndpi",
+        message,
+    );
+}
+
 fn log_error(message: String) {
     suricata::log_message(
         suricata::SC_LOG_ERROR,
@@ -77,6 +101,17 @@ fn log_error(message: String) {
 
 fn fatal(message: String) -> ! {
     suricata::fatal_error("ndpi-plugin", message)
+}
+
+/// The direction of the packet within its flow.
+fn packet_direction(p: &suricata::Packet) -> Direction {
+    if p.is_toserver() {
+        Direction::ToServer
+    } else if p.is_toclient() {
+        Direction::ToClient
+    } else {
+        Direction::Unknown
+    }
 }
 
 unsafe fn thread_context<'a>(tv: *const suricata::ThreadVars) -> Option<&'a mut ThreadContext> {
@@ -117,8 +152,11 @@ unsafe extern "C" fn on_flow_init(
         return;
     }
 
-    let ndpi_flow =
-        Flow::new().unwrap_or_else(|| fatal("Failed to allocate nDPI flow".to_string()));
+    // On allocation failure the flow is left without nDPI storage and is
+    // simply not inspected.
+    let Some(ndpi_flow) = Flow::new() else {
+        return;
+    };
     let ctx = Box::new(FlowContext { ndpi_flow });
     suricata::FlowSetStorageById(f, FLOW_STORAGE_ID, Box::into_raw(ctx).cast());
 }
@@ -153,6 +191,7 @@ unsafe extern "C" fn on_flow_update(
         ip_ptr,
         ip_len,
         (*p).timestamp_millis(),
+        packet_direction(&*p),
         (*f).proto,
         packet_count,
     );
@@ -170,7 +209,7 @@ unsafe extern "C" fn on_thread_init(tv: *mut suricata::ThreadVars, _data: *mut c
         return;
     }
 
-    let ndpi = DetectionModule::new()
+    let ndpi = DetectionModule::new(LICENSE, GLOBAL_CONTEXT)
         .unwrap_or_else(|| fatal("Failed to initialize nDPI detection module".to_string()));
     let ctx = Box::new(ThreadContext { ndpi });
     suricata::ThreadSetStorageById(tv, THREAD_STORAGE_ID, Box::into_raw(ctx).cast());
@@ -209,7 +248,7 @@ fn detect_ndpi_protocol_parse(
     arg: *const c_char,
     negate: bool,
 ) -> Option<Box<DetectNdpiProtocolData>> {
-    let l7_protocol = ndpi::parse_protocol(arg);
+    let l7_protocol = ndpi::parse_protocol(arg, unsafe { LICENSE });
     if l7_protocol.is_none() && !arg.is_null() {
         let name = unsafe { CStr::from_ptr(arg) }.to_string_lossy();
         log_error(format!("failure parsing nDPI protocol '{}'", name));
@@ -405,7 +444,15 @@ unsafe extern "C" fn eve_callback(
     let Some(flowctx) = flow_context(f) else {
         return;
     };
-    flowctx.ndpi_flow.write_json(&mut threadctx.ndpi, jb);
+    if !flowctx.ndpi_flow.write_json(&mut threadctx.ndpi, jb)
+        && !JSON_DROPPED.swap(true, Ordering::Relaxed)
+    {
+        log_warning(
+            "nDPI produced malformed JSON for a flow, dropping its EVE object \
+             (only reported once)"
+                .to_string(),
+        );
+    }
 }
 
 unsafe fn init_keywords() {
@@ -442,7 +489,43 @@ unsafe fn init_keywords() {
     risk.flags = suricata::SIGMATCH_QUOTES_OPTIONAL | suricata::SIGMATCH_HANDLE_NEGATION;
 }
 
+fn load_license() -> LicenseType {
+    let Some(value) = suricata::conf_get(LICENSE_CONF_KEY) else {
+        return DEFAULT_LICENSE;
+    };
+
+    LicenseType::from_config(&value).unwrap_or_else(|| {
+        fatal(format!(
+            "invalid ndpi.license value '{}', expected one of: not-for-profit, \
+             for-profit-lgpl, for-profit-dual-license",
+            value
+        ))
+    })
+}
+
 unsafe extern "C" fn ndpi_init() {
+    LICENSE = load_license();
+    log_notice(format!("nDPI license type: {}", LICENSE.as_str()));
+    if LICENSE == LicenseType::ForProfitLgpl {
+        log_warning(format!(
+            "ndpi.license is \"{}\": nDPI will not load its dual-licensed \
+             dissectors (DHCP, DNS, QUIC and TLS as of nDPI 6.0)",
+            LICENSE.as_str()
+        ));
+    }
+
+    // Global context shared by the worker detection modules, see
+    // DetectionModule::new().
+    let g_ctx = GlobalContext::new();
+    GLOBAL_CONTEXT = g_ctx;
+    if g_ctx.is_none() {
+        log_warning(
+            "Failed to initialize the nDPI global context: \
+             per-thread nDPI caches will not be shared"
+                .to_string(),
+        );
+    }
+
     THREAD_STORAGE_ID = suricata::ThreadStorageRegister(
         b"ndpi\0".as_ptr().cast(),
         mem::size_of::<*mut c_void>() as u32,
@@ -487,7 +570,7 @@ static PLUGIN: suricata::SCPlugin = suricata::SCPlugin {
     plugin_version: concat!(env!("CARGO_PKG_VERSION"), "\0").as_ptr().cast(),
     name: b"ndpi\0".as_ptr().cast(),
     author: b"Luca Deri\0".as_ptr().cast(),
-    license: b"LGPL-3.0-only\0".as_ptr().cast(),
+    license: b"LGPL-3.0-only AND LicenseRef-nDPI-Dual-License\0".as_ptr().cast(),
     Init: Some(ndpi_init),
 };
 

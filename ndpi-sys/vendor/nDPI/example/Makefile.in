@@ -1,0 +1,116 @@
+# Support for out-of-tree builds (VPATH)
+srcdir = @srcdir@
+top_srcdir = @top_srcdir@
+top_builddir = @top_builddir@
+VPATH = @srcdir@
+
+AR=@AR@
+CC=@CC@
+CXX=@CXX@
+CFLAGS=@CFLAGS@
+LDFLAGS=@LDFLAGS@
+OS_TYPE=@OS_TYPE@
+BUILD_MINGW=@BUILD_MINGW@
+BUILD_MINGW_X64=@BUILD_MINGW_X64@
+DISABLE_NPCAP=@DISABLE_NPCAP@
+EXE_SUFFIX=@EXE_SUFFIX@
+SRCHOME=$(top_srcdir)/src
+ifneq ($(OS_TYPE),Windows_NT)
+AM_CFLAGS=-fPIC -DPIC
+else
+AM_CFLAGS=
+endif
+AM_CFLAGS+=-I$(SRCHOME)/include -I$(top_builddir)/src/include @NDPI_CFLAGS@ @PCAP_INC@ @GPROF_CFLAGS@ @CUSTOM_NDPI@
+AM_LDFLAGS=@NDPI_LDFLAGS@
+ENABLE_STATIC        = @enable_static@
+ifeq ($(ENABLE_STATIC),yes)
+LIBNDPI=$(top_builddir)/src/lib/libndpi.a
+LIBNDPI_DEP=$(LIBNDPI)
+else
+LIBNDPI=-lndpi
+LIBNDPI_DEP=$(top_builddir)/src/lib/libndpi.so
+AM_LDFLAGS+=-L$(top_builddir)/src/lib
+endif
+LIBS=$(LIBNDPI) @PCAP_LIB@ @ADDITIONAL_LIBS@ @GPROF_LIBS@ @LIBS@
+HEADERS=reader_util.h $(SRCHOME)/include/ndpi_api.h \
+        $(SRCHOME)/include/ndpi_typedefs.h $(SRCHOME)/include/ndpi_protocol_ids.h
+HEADERS+=$(top_builddir)/src/include/ndpi_config.h $(top_builddir)/src/include/ndpi_define.h
+PREFIX?=@prefix@
+
+ifneq ($(BUILD_MINGW),)
+
+ifeq ($(DISABLE_NPCAP),0)
+AM_CFLAGS+=-I@srcdir@/../windows/WpdPack/Include -I@srcdir@/../windows/WpdPack/Include/pcap
+else
+AM_CFLAGS+=-DDISABLE_NPCAP
+endif
+
+ifeq ($(DISABLE_NPCAP),0)
+
+ifneq ($(BUILD_MINGW_X64),)
+LIBS+=@srcdir@/../windows/WpdPack/Lib/x64/wpcap.lib
+else
+LIBS+=@srcdir@/../windows/WpdPack/Lib/wpcap.lib
+endif
+
+endif
+
+LIBS+=-Wl,-Bstatic -lpthread -Wl,-Bdynamic
+else
+LIBS+=-pthread
+endif
+
+AM_CFLAGS+=-pthread
+
+all: ndpiReader$(EXE_SUFFIX) ndpiSimpleIntegration$(EXE_SUFFIX) @DPDK_TARGET@
+
+EXECUTABLE_SOURCES := ndpiReader.c ndpiSimpleIntegration.c
+COMMON_SOURCES := $(filter-out $(EXECUTABLE_SOURCES),$(notdir $(wildcard $(srcdir)/*.c)))
+
+ndpiReader$(EXE_SUFFIX): $(COMMON_SOURCES:%.c=%.o) ndpiReader.o $(LIBNDPI_DEP)
+	$(CC) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) $(LDFLAGS) ndpiReader.o $(COMMON_SOURCES:%.c=%.o) $(LIBS) -o $@
+
+ndpiSimpleIntegration$(EXE_SUFFIX): ndpiSimpleIntegration.o
+	$(CC) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) $(LDFLAGS) $< $(LIBS) -o $@
+
+%.o: %.c $(HEADERS) Makefile
+	$(CC) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c $< -o $@
+
+install: ndpiReader$(EXE_SUFFIX)
+	@MKDIR_P@ $(DESTDIR)$(PREFIX)/bin/
+	@MKDIR_P@ $(DESTDIR)$(PREFIX)/share/ndpi
+	cp ndpiReader$(EXE_SUFFIX) $(DESTDIR)$(PREFIX)/bin/
+	cp $(srcdir)/protos.txt $(DESTDIR)$(PREFIX)/share/ndpi/ndpiProtos.txt
+	cp $(srcdir)/mining_hosts.txt $(DESTDIR)$(PREFIX)/share/ndpi/ndpiCustomCategory.txt
+	[ -f ndpiSimpleIntegration$(EXE_SUFFIX) ] && cp ndpiSimpleIntegration$(EXE_SUFFIX) $(DESTDIR)$(PREFIX)/bin/ndpiSimpleIntegration$(EXE_SUFFIX) || true
+	[ -f build/app/ndpiReader.dpdk ] && cp build/app/ndpiReader.dpdk $(DESTDIR)$(PREFIX)/bin/ || true
+	[ -f ndpiReader.dpdk ] && cp ndpiReader.dpdk $(DESTDIR)$(PREFIX)/bin/ || true
+
+dpdk:
+	$(MAKE) -f Makefile.dpdk
+
+check:
+	true # nothing to do here
+
+cppcheck:
+	 cppcheck --template='{file}:{line}:{severity}:{message}' --quiet --enable=all --force -I$(SRCHOME)/include $(srcdir)/*.c
+
+clean:
+	$(RM) *.o *.lo ndpiReader ndpiSimpleIntegration ndpiReader$(EXE_SUFFIX) ndpiSimpleIntegration$(EXE_SUFFIX) ndpiReader.dpdk
+	$(RM) .*.dpdk.cmd .*.o.cmd *.dpdk.map .*.o.d
+	$(RM) _install _postbuild _postinstall _preinstall
+	$(RM) -r build .libs .deps
+
+distdir:
+	cp $(srcdir)/README.DPDK '$(distdir)/'
+	find $(srcdir) -maxdepth 1 -type f -name '*.c' \
+		-o -name '*.h' \
+		-o -name '*.py' \
+		-o -name '*.sh' \
+		-o -name '*.txt' \
+		-o -name '*.conf' \
+		-o -name '*.csv' | xargs -I'{}' cp '{}' '$(distdir)/{}'
+
+distclean: clean
+	$(RM) Makefile.dpdk
+	$(RM) Makefile

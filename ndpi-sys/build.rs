@@ -19,13 +19,13 @@ fn main() {
         .expect("failed to create generated include directory");
 
     println!("cargo:rerun-if-changed=build.rs");
-    let ndpi_define_header = ndpi_dir.join("windows/src/ndpi_define.h");
+    let ndpi_define_template = ndpi_include_dir.join("ndpi_define.h.in");
 
-    println!("cargo:rerun-if-changed={}", ndpi_define_header.display());
+    println!("cargo:rerun-if-changed={}", ndpi_define_template.display());
 
     copy_public_headers(&ndpi_include_dir, &generated_include_dir);
     write_ndpi_config_header(&generated_include_dir);
-    write_ndpi_define_header(&ndpi_define_header, &generated_include_dir);
+    write_ndpi_define_header(&ndpi_define_template, &generated_include_dir);
 
     let c_sources = collect_c_sources(&ndpi_lib_dir);
 
@@ -39,6 +39,10 @@ fn main() {
     build.include(&ndpi_lib_dir);
     build.include(ndpi_lib_dir.join("third_party/include"));
     build.define("NDPI_LIB_COMPILATION", None);
+    // Allow detection modules to share LRU caches through a global context,
+    // as nDPI's configure does by default. This adds a pthread mutex to the
+    // public struct ndpi_lru_cache, which the bindings keep opaque.
+    build.define("USE_GLOBAL_CONTEXT", None);
     build.define("_DEFAULT_SOURCE", Some("1"));
     build.define("_GNU_SOURCE", Some("1"));
     build.flag_if_supported("-std=gnu11");
@@ -82,45 +86,57 @@ fn copy_public_headers(source: &Path, destination: &Path) {
     }
 }
 
+const NDPI_MAJOR: &str = "6";
+const NDPI_MINOR: &str = "0";
+const NDPI_PATCH: &str = "0";
+const NDPI_VERSION: &str = "6.0.0";
+
 fn write_ndpi_config_header(generated_include_dir: &Path) {
-    let header =
-        "#pragma once\n\n#define NDPI_GIT_RELEASE \"5.0.0\"\n#define NDPI_GIT_DATE \"unknown\"\n";
+    let header = format!(
+        "#pragma once\n\n\
+         #define NDPI_MAJOR_RELEASE \"{}\"\n\
+         #define NDPI_MINOR_RELEASE \"{}\"\n\
+         #define NDPI_PATCH_LEVEL \"{}\"\n\
+         #define NDPI_GIT_RELEASE \"{}\"\n\
+         #define NDPI_GIT_DATE \"unknown\"\n",
+        NDPI_MAJOR, NDPI_MINOR, NDPI_PATCH, NDPI_VERSION
+    );
 
     fs::write(generated_include_dir.join("ndpi_config.h"), header)
         .expect("failed to write ndpi_config.h");
 }
 
-fn write_ndpi_define_header(ndpi_define_header: &Path, generated_include_dir: &Path) {
-    let mut rendered =
-        fs::read_to_string(ndpi_define_header).expect("failed to read nDPI ndpi_define.h");
+/// Render `ndpi_define.h` from the upstream autoconf template, substituting
+/// the values configure would otherwise provide.
+fn write_ndpi_define_header(ndpi_define_template: &Path, generated_include_dir: &Path) {
+    let template =
+        fs::read_to_string(ndpi_define_template).expect("failed to read nDPI ndpi_define.h.in");
 
-    rendered = set_define_value(&rendered, "NDPI_API_VERSION", "0");
-    rendered = set_define_value(&rendered, "NDPI_MAJOR", "5");
-    rendered = set_define_value(&rendered, "NDPI_MINOR", "0");
-    rendered = set_define_value(&rendered, "NDPI_PATCH", "0");
+    let rendered = template
+        .replace("@NDPI_API_VERSION@", "0")
+        .replace("@NDPI_MAJOR@", NDPI_MAJOR)
+        .replace("@NDPI_MINOR@", NDPI_MINOR)
+        .replace("@NDPI_PATCH@", NDPI_PATCH);
+
+    if let Some(line) = rendered.lines().find(|line| has_autoconf_token(line)) {
+        panic!(
+            "unhandled autoconf substitution in ndpi_define.h.in: {}",
+            line
+        );
+    }
 
     fs::write(generated_include_dir.join("ndpi_define.h"), rendered)
         .expect("failed to write ndpi_define.h");
 }
 
-fn set_define_value(contents: &str, define_name: &str, define_value: &str) -> String {
-    let mut out = String::with_capacity(contents.len());
-
-    for line in contents.lines() {
-        let trimmed = line.trim_start();
-        let mut parts = trimmed.split_whitespace();
-        let is_target_define = parts.next() == Some("#define") && parts.next() == Some(define_name);
-
-        if is_target_define {
-            out.push_str(&format!("#define {} {}", define_name, define_value));
-            out.push('\n');
-        } else {
-            out.push_str(line);
-            out.push('\n');
-        }
-    }
-
-    out
+/// Returns true if the line contains an `@NAME@` autoconf substitution token.
+fn has_autoconf_token(line: &str) -> bool {
+    line.split('@').skip(1).step_by(2).any(|name| {
+        !name.is_empty()
+            && name
+                .bytes()
+                .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
+    }) && line.matches('@').count() >= 2
 }
 
 fn collect_c_sources(ndpi_lib_dir: &Path) -> Vec<PathBuf> {

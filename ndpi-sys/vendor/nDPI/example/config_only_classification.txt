@@ -7,11 +7,14 @@ flow_risk.all,0
 #General metadata
 metadata.tcp_fingerprint,0
 metadata.ndpi_fingerprint,0
+metadata.ndpi_server_fingerprint,0
 dpi.compute_entropy,0
 #BITTORRENT
 bittorrent,metadata.hash,0
 #SSDP
 ssdp,metadata,0
+#NTP
+ntp,metadata,0
 #TLS (we might need ja4c for subclassification)
 tls,metadata.sha1_fingerprint,0
 tls,metadata.ja3s_fingerprint,0
@@ -25,7 +28,9 @@ tls,metadata.cipher,0
 tls,metadata.browser,0
 #SIP
 sip,metadata.attribute.from,0
+sip,metadata.attribute.from_imsi,0
 sip,metadata.attribute.to,0
+sip,metadata.attribute.to_imsi,0
 #STUN
 stun,metadata.attribute.mapped_address,0
 stun,metadata.attribute.peer_address,0

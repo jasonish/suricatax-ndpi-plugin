@@ -41,7 +41,7 @@ static void ndpi_search_nintendo(struct ndpi_detection_module_struct *ndpi_struc
   if(packet->udp != NULL) {
     if(payload_len > 48) {
       const char *payload = (const char *)packet->payload;
-      const char nintendo_pattern[] = { 0x32, 0xab, 0x98, 0x64, 0x02 };
+      const unsigned char nintendo_pattern[] = { 0x32, 0xab, 0x98, 0x64, 0x02 };
 
       if(memcmp(payload, nintendo_pattern, 5) == 0) {
 	NDPI_LOG_INFO(ndpi_struct, "found nintendo\n");
@@ -55,9 +55,10 @@ static void ndpi_search_nintendo(struct ndpi_detection_module_struct *ndpi_struc
 }
 
 void init_nintendo_dissector(struct ndpi_detection_module_struct *ndpi_struct) {
-  register_dissector("Nintendo", ndpi_struct,
+  ndpi_register_dissector("Nintendo", ndpi_struct,
                      ndpi_search_nintendo,
                      NDPI_SELECTION_BITMASK_PROTOCOL_V4_V6_UDP_WITH_PAYLOAD,
+                     DISSECTOR_LICENSE_LGPL,
                      1, NDPI_PROTOCOL_NINTENDO);
 }
 

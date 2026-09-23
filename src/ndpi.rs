@@ -24,15 +24,139 @@ use ndpi_sys as ffi;
 
 use suricatax80_plugin_utils as suricata;
 
+/// The nDPI usage license, passed to nDPI at detection module initialization.
+///
+/// Starting with nDPI 6.0, some dissectors (e.g. TLS, QUIC, DNS and DHCP) are
+/// dual-licensed by ntop and are only loaded when nDPI is used in a
+/// not-for-profit project or under a commercial license from ntop.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LicenseType {
+    /// Not-for-profit use: LGPL and dual-licensed dissectors are enabled.
+    NotForProfit,
+    /// For-profit use without an ntop license: only LGPL dissectors are
+    /// enabled.
+    ForProfitLgpl,
+    /// For-profit use with an ntop license: all dissectors are enabled.
+    ForProfitDualLicense,
+}
+
+impl LicenseType {
+    pub fn from_config(value: &str) -> Option<Self> {
+        match value {
+            "not-for-profit" => Some(Self::NotForProfit),
+            "for-profit-lgpl" => Some(Self::ForProfitLgpl),
+            "for-profit-dual-license" => Some(Self::ForProfitDualLicense),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::NotForProfit => "not-for-profit",
+            Self::ForProfitLgpl => "for-profit-lgpl",
+            Self::ForProfitDualLicense => "for-profit-dual-license",
+        }
+    }
+
+    fn as_ffi(self) -> ffi::ndpi_license_type {
+        match self {
+            Self::NotForProfit => ffi::ndpi_license_type_NDPI_LICENSE_NOT_FOR_PROFIT_LGPL,
+            Self::ForProfitLgpl => ffi::ndpi_license_type_NDPI_LICENSE_FOR_PROFIT_LGPL,
+            Self::ForProfitDualLicense => {
+                ffi::ndpi_license_type_NDPI_LICENSE_FOR_PROFIT_DUAL_LICENSE
+            }
+        }
+    }
+}
+
+/// The direction of a packet within its flow.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Direction {
+    Unknown,
+    ToServer,
+    ToClient,
+}
+
+impl Direction {
+    fn as_ffi(self) -> u8 {
+        (match self {
+            Self::Unknown => ffi::NDPI_IN_PKT_DIR_UNKNOWN,
+            Self::ToServer => ffi::NDPI_IN_PKT_DIR_C_TO_S,
+            Self::ToClient => ffi::NDPI_IN_PKT_DIR_S_TO_C,
+        }) as u8
+    }
+}
+
+/// nDPI correlates flows through LRU caches (DNS to TLS, STUN to RTP, ...)
+/// that are private to a detection module unless made global through a
+/// shared context. Suricata spreads a host's flows over all its workers, so
+/// without sharing, a correlation never leaves the worker that saw the first
+/// flow.
+const SHARED_LRU_CACHES: &[&[u8]] = &[
+    b"lru.ookla.scope\0",
+    b"lru.bittorrent.scope\0",
+    b"lru.stun.scope\0",
+    b"lru.tls_cert.scope\0",
+    b"lru.mining.scope\0",
+    b"lru.msteams.scope\0",
+    b"lru.fpc_dns.scope\0",
+    b"lru.signal.scope\0",
+];
+
+/// An nDPI global context, shared by the per-thread detection modules.
+///
+/// There is no plugin deinit hook, so it is never released.
+#[derive(Clone, Copy)]
+pub struct GlobalContext {
+    ptr: NonNull<ffi::ndpi_global_context>,
+}
+
+impl GlobalContext {
+    pub fn new() -> Option<Self> {
+        let ptr = unsafe { ffi::ndpi_global_init() };
+        Some(Self {
+            ptr: NonNull::new(ptr)?,
+        })
+    }
+}
+
 pub struct DetectionModule {
     ptr: NonNull<ffi::ndpi_detection_module_struct>,
 }
 
 impl DetectionModule {
-    pub fn new() -> Option<Self> {
+    /// Allocate and finalize a detection module.
+    ///
+    /// Worker modules share their LRU caches through `g_ctx`; the throwaway
+    /// modules used while parsing rules don't need to. nDPI creates a shared
+    /// cache on the first finalization without locking, which is fine as
+    /// Suricata runs thread init callbacks sequentially.
+    pub fn new(license: LicenseType, g_ctx: Option<GlobalContext>) -> Option<Self> {
         unsafe {
-            let ptr = ffi::ndpi_init_detection_module(ptr::null_mut());
+            let g_ctx_ptr = g_ctx.map_or(ptr::null_mut(), |g_ctx| g_ctx.ptr.as_ptr());
+            let ptr = ffi::ndpi_init_detection_module(g_ctx_ptr, license.as_ffi());
             let ptr = NonNull::new(ptr)?;
+
+            if g_ctx.is_some() {
+                for param in SHARED_LRU_CACHES {
+                    let rc = ffi::ndpi_set_config(
+                        ptr.as_ptr(),
+                        ptr::null(),
+                        param.as_ptr().cast(),
+                        b"1\0".as_ptr().cast(),
+                    );
+                    if rc != ffi::ndpi_cfg_error_NDPI_CFG_OK {
+                        let param = CStr::from_bytes_with_nul(param)
+                            .map(|p| p.to_string_lossy())
+                            .unwrap_or_default();
+                        crate::log_warning(format!(
+                            "Failed to share the nDPI \"{}\" cache between threads",
+                            param
+                        ));
+                    }
+                }
+            }
+
             if ffi::ndpi_finalize_initialization(ptr.as_ptr()) != 0 {
                 ffi::ndpi_exit_detection_module(ptr.as_ptr());
                 return None;
@@ -101,18 +225,27 @@ impl Flow {
         self.detection_completed
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn process_packet(
         &mut self,
         module: &mut DetectionModule,
         packet: *const u8,
         packet_len: u16,
         time_ms: u64,
+        direction: Direction,
         l4_proto: u8,
         packet_count: u32,
     ) {
         if self.detection_completed || packet.is_null() || packet_len == 0 {
             return;
         }
+
+        // Whether the flow beginning was seen is left unknown, as the flow
+        // API exposes no reliable flag for it.
+        let mut input_info = ffi::ndpi_flow_input_info {
+            in_pkt_dir: direction.as_ffi(),
+            seen_flow_beginning: ffi::NDPI_FLOW_BEGINNING_UNKNOWN as u8,
+        };
 
         unsafe {
             self.detected_l7_protocol = ffi::ndpi_detection_process_packet(
@@ -121,30 +254,25 @@ impl Flow {
                 packet,
                 packet_len,
                 time_ms,
-                ptr::null_mut(),
+                &mut input_info,
             );
 
-            if ffi::ndpi_is_protocol_detected(self.detected_l7_protocol) != 0 {
-                if !ffi::ndpi_is_proto_unknown(self.detected_l7_protocol.proto) {
-                    let flow = self.ptr.as_ref();
-                    let extra_done =
-                        flow.num_extra_packets_checked >= flow.max_extra_packets_to_check;
-                    if self.detected_l7_protocol.state
-                        == ffi::ndpi_classification_state_NDPI_STATE_CLASSIFIED
-                        || extra_done
-                    {
-                        self.detection_completed = true;
-                    }
-                }
+            let state = self.detected_l7_protocol.state;
+            if classification_final(state, self.ptr.as_ref()) {
+                self.detection_completed = true;
             } else {
+                // Stop feeding nDPI after a few packets, taking its best
+                // guess for flows it could not classify.
                 let max_num_pkts = if l4_proto == suricata::IPPROTO_UDP {
                     8
                 } else {
                     24
                 };
                 if packet_count > max_num_pkts {
-                    self.detected_l7_protocol =
-                        ffi::ndpi_detection_giveup(module.as_ptr(), self.ptr.as_ptr());
+                    if !is_classified(state) {
+                        self.detected_l7_protocol =
+                            ffi::ndpi_detection_giveup(module.as_ptr(), self.ptr.as_ptr());
+                    }
                     self.detection_completed = true;
                 }
             }
@@ -162,13 +290,18 @@ impl Flow {
         matched ^ negated
     }
 
+    /// Add the nDPI JSON for this flow to `jb`.
+    ///
+    /// Returns false if nDPI produced malformed JSON, which is then dropped
+    /// instead of being added to the EVE record. nDPI 6.0 has been seen
+    /// corrupting its output when escaping non-printable characters.
     pub unsafe fn write_json(
         &mut self,
         module: &mut DetectionModule,
         jb: *mut suricata::SCJsonBuilder,
-    ) {
+    ) -> bool {
         if jb.is_null() {
-            return;
+            return true;
         }
 
         let mut serializer: ffi::ndpi_serializer = mem::zeroed();
@@ -177,7 +310,7 @@ impl Flow {
             ffi::ndpi_serialization_format_ndpi_serialization_format_inner_json,
         ) != 0
         {
-            return;
+            return true;
         }
 
         ffi::ndpi_dpi2json(
@@ -187,17 +320,45 @@ impl Flow {
             &mut serializer,
         );
 
+        let mut valid = true;
         let mut buffer_len = 0;
         let buffer = ffi::ndpi_serializer_get_buffer(&mut serializer, &mut buffer_len);
         if !buffer.is_null() && buffer_len > 0 {
             let buffer = std::slice::from_raw_parts(buffer.cast::<u8>(), buffer_len as usize);
-            if let Some(formatted) = validate_inner_json(buffer) {
-                suricata::scjb_set_formatted(jb, formatted.as_ptr());
+            // An empty fragment is valid, there is just nothing to add.
+            if !buffer.iter().all(u8::is_ascii_whitespace) {
+                valid = match validate_inner_json(buffer) {
+                    Some(formatted) => suricata::scjb_set_formatted(jb, formatted.as_ptr()),
+                    None => false,
+                };
             }
         }
 
         ffi::ndpi_term_serializer(&mut serializer);
+        valid
     }
+}
+
+fn is_classified(state: ffi::ndpi_classification_state) -> bool {
+    state == ffi::ndpi_classification_state_NDPI_STATE_CLASSIFIED
+        || state == ffi::ndpi_classification_state_NDPI_STATE_MONITORING
+}
+
+/// Whether nDPI reached a final classification for the flow. Once it has,
+/// the plugin stops feeding it packets and the keywords start matching.
+///
+/// `NDPI_STATE_CLASSIFIED` with no extra dissection pending is final, as in
+/// nDPI's ndpiReader. `NDPI_STATE_MONITORING` is treated as final too: the
+/// classification will not change and nDPI would only extract more
+/// metadata, so stopping there bounds the per packet cost at the expense of
+/// that metadata.
+fn classification_final(
+    state: ffi::ndpi_classification_state,
+    flow: &ffi::ndpi_flow_struct,
+) -> bool {
+    state == ffi::ndpi_classification_state_NDPI_STATE_MONITORING
+        || (state == ffi::ndpi_classification_state_NDPI_STATE_CLASSIFIED
+            && flow.extra_packets_func.is_none())
 }
 
 fn validate_inner_json(fragment: &[u8]) -> Option<CString> {
@@ -241,7 +402,69 @@ fn sanitize_json_keys(value: &mut serde_json::Value) {
 
 #[cfg(test)]
 mod tests {
-    use super::validate_inner_json;
+    use super::{classification_final, ffi, is_classified, validate_inner_json, LicenseType};
+
+    unsafe extern "C" fn extra_packets(
+        _ndpi: *mut ffi::ndpi_detection_module_struct,
+        _flow: *mut ffi::ndpi_flow_struct,
+    ) -> std::os::raw::c_int {
+        1
+    }
+
+    #[test]
+    fn classification_final_states() {
+        let mut flow: Box<ffi::ndpi_flow_struct> = Box::new(unsafe { std::mem::zeroed() });
+
+        assert!(!classification_final(
+            ffi::ndpi_classification_state_NDPI_STATE_INSPECTING,
+            &flow
+        ));
+        assert!(!classification_final(
+            ffi::ndpi_classification_state_NDPI_STATE_PARTIAL,
+            &flow
+        ));
+        assert!(classification_final(
+            ffi::ndpi_classification_state_NDPI_STATE_MONITORING,
+            &flow
+        ));
+        assert!(classification_final(
+            ffi::ndpi_classification_state_NDPI_STATE_CLASSIFIED,
+            &flow
+        ));
+
+        // Classified, but extra dissection is still pending.
+        flow.extra_packets_func = Some(extra_packets);
+        assert!(!classification_final(
+            ffi::ndpi_classification_state_NDPI_STATE_CLASSIFIED,
+            &flow
+        ));
+        assert!(classification_final(
+            ffi::ndpi_classification_state_NDPI_STATE_MONITORING,
+            &flow
+        ));
+
+        for (state, classified) in [
+            (ffi::ndpi_classification_state_NDPI_STATE_INSPECTING, false),
+            (ffi::ndpi_classification_state_NDPI_STATE_PARTIAL, false),
+            (ffi::ndpi_classification_state_NDPI_STATE_MONITORING, true),
+            (ffi::ndpi_classification_state_NDPI_STATE_CLASSIFIED, true),
+        ] {
+            assert_eq!(is_classified(state), classified);
+        }
+    }
+
+    #[test]
+    fn license_type_from_config() {
+        for license in [
+            LicenseType::NotForProfit,
+            LicenseType::ForProfitLgpl,
+            LicenseType::ForProfitDualLicense,
+        ] {
+            assert_eq!(LicenseType::from_config(license.as_str()), Some(license));
+        }
+        assert_eq!(LicenseType::from_config("for-profit"), None);
+        assert_eq!(LicenseType::from_config(""), None);
+    }
 
     #[test]
     fn validate_inner_json_reserializes_valid_fragment() {
@@ -280,6 +503,18 @@ mod tests {
     }
 
     #[test]
+    fn validate_inner_json_preserves_field_order() {
+        let formatted = validate_inner_json(
+            br#""ndpi":{"proto":"TLS","a.b":1,"breed":"Safe","category":"Web"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            formatted.to_str().unwrap(),
+            r#""ndpi":{"proto":"TLS","a_b":1,"breed":"Safe","category":"Web"}"#
+        );
+    }
+
+    #[test]
     fn validate_inner_json_rejects_invalid_fragment() {
         assert!(validate_inner_json(br#""ndpi":{"hostname":"unterminated}"#).is_none());
         assert!(validate_inner_json(b"").is_none());
@@ -294,12 +529,15 @@ impl Drop for Flow {
     }
 }
 
-pub fn parse_protocol(name: *const c_char) -> Option<ffi::ndpi_master_app_protocol> {
+pub fn parse_protocol(
+    name: *const c_char,
+    license: LicenseType,
+) -> Option<ffi::ndpi_master_app_protocol> {
     if name.is_null() {
         return None;
     }
 
-    let mut module = DetectionModule::new()?;
+    let mut module = DetectionModule::new(license, None)?;
     let proto = unsafe { module.protocol_by_name(name) };
     let unknown = unsafe { ffi::ndpi_is_proto_unknown(proto) };
     if unknown {

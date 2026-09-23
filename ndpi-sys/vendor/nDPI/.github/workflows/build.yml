@@ -3,9 +3,11 @@ on:
   push:
     branches:
       - dev
+      - '**/*-stable'
   pull_request:
     branches:
       - dev
+      - '**/*-stable'
     types: [opened, synchronize, reopened]
   release:
     types: [created]
@@ -14,13 +16,13 @@ jobs:
     name: Python Bindings (ubuntu-latest)
     runs-on: ubuntu-latest
     env:
-      CFLAGS: -Wextra -Werror
+      CFLAGS: -Werror
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - name: Set up Python 3.9
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.9"
       - name: Install Ubuntu Prerequisites
@@ -48,7 +50,7 @@ jobs:
     name: Test Utils (ubuntu-latest)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - name: Install Ubuntu Prerequisites
@@ -57,8 +59,10 @@ jobs:
           sudo apt-get install python3-netaddr git whois libxml2-utils
       - name: Run Scripts
         run: |
-          echo 'Running ./utils/bitcoinnodes.sh'
-          ./utils/bitcoinnodes.sh >/dev/null
+          #This site is no more reachable and we are not really using any info from it anyway, yet
+          #--> disable it for the time being; TODO
+          #echo 'Running ./utils/bitcoinnodes.sh'
+          #./utils/bitcoinnodes.sh >/dev/null
           echo 'Running ./utils/get_routes_by_asn.sh AS714'
           ./utils/get_routes_by_asn.sh AS714 >/dev/null
           echo 'Running ./utils/update_every_lists.sh'
@@ -68,80 +72,56 @@ jobs:
           git diff-index --quiet HEAD -- || true
 
   test:
-    name: ${{ matrix.os }} ${{ matrix.compiler }} ${{ matrix.pcre }} ${{ matrix.maxminddb }} ${{ matrix.msan }} ${{ matrix.nBPF }} ${{matrix.global_context}}
+    name: ${{ matrix.os }} ${{ matrix.compiler }} ${{ matrix.cflags }} ${{ matrix.pcre }} ${{ matrix.maxminddb }} ${{ matrix.msan }}
     runs-on: ${{ matrix.os }}
     env:
       CC: ${{ matrix.compiler }}
-      CFLAGS: -Wextra -Werror -DNDPI_EXTENDED_SANITY_CHECKS
+      CFLAGS: -Werror -DNDPI_EXTENDED_SANITY_CHECKS ${{ matrix.cflags }}
     strategy:
       fail-fast: true
       matrix:
-        # macos-14,15 and 26 are on **ARM64**
-        os: ["ubuntu-22.04", "ubuntu-24.04", "macOS-14", "macOS-15", "macOS-26", "ubuntu-22.04-arm", "ubuntu-24.04-arm"]
+        # Only most "important" OS; the other ones are tested only via scheduled job
+        os: ["ubuntu-22.04", "ubuntu-24.04", "ubuntu-26.04", "macOS-15", "macOS-26"]
         compiler: ["cc"]
         pcre: [""]
         maxminddb: [""]
         msan: [""]
-        nBPF: [""]
-        global_context: [""] # Enable by default
+        cflags: ["-g -O2"] # Default value if you do not specify CFLAGS variable
         include:
+          #Try "newest/oldest" compilers with various optimization flags
           - compiler: "gcc-4.9" # "Oldest" gcc easily available. To simulate RHEL7
             os: ubuntu-22.04
-            pcre: "--with-pcre2"
-            maxminddb: "--with-maxminddb"
-            msan: "--with-sanitizer"
-            nBPF: ""
-          - compiler: "gcc-14" # "Newest" gcc easily available
-            os: ubuntu-24.04
-            pcre: "--with-pcre2"
-            maxminddb: "--with-maxminddb"
-            msan: "--with-sanitizer"
-            nBPF: ""
+            cflags: "-O0"
+          - compiler: "gcc-15" # "Newest" gcc easily available
+            os: ubuntu-26.04
+            cflags: "-O1"
           - compiler: "clang-12" # "Oldest" clang easily available
             os: ubuntu-22.04
-            pcre: "--with-pcre2"
-            maxminddb: "--with-maxminddb"
-            msan: "--with-sanitizer"
-            nBPF: ""
-          - compiler: "clang-18" # "Newest" clang easily available. See also below...
-            os: ubuntu-24.04
-            pcre: "--with-pcre2"
-            maxminddb: "--with-maxminddb"
-            msan: "--with-sanitizer"
-            nBPF: ""
-          - compiler: "cc"
+            cflags: "-Os"
+          - compiler: "clang-22" # "Newest" clang easily available.
+            os: ubuntu-26.04
+            cflags: "-O3"
+          #Sanitizer
+          - compiler: "clang"
             os: ubuntu-latest
             pcre: "--with-pcre2"
             maxminddb: "--with-maxminddb"
-            msan: ""
-            nBPF: "nBPF"
-          - compiler: "cc"
-            os: ubuntu-latest
-            pcre: "--with-pcre2"
-            maxminddb: "--with-maxminddb"
-            msan: ""
-            nBPF: ""
-            global_context: "--disable-global-context-support"
+            msan: "--with-sanitizer"
           - compiler: "cc"
             os: macOS-latest
             pcre: "--with-pcre2"
             maxminddb: "--with-maxminddb"
             msan: ""
-            nBPF: ""
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
       - name: Install Ubuntu Prerequisites
         if: startsWith(matrix.os, 'ubuntu')
         run: |
           sudo apt-get update
-          sudo apt-get install autoconf automake debhelper libtool pkg-config gettext libjson-c-dev flex bison libpcap-dev
+          sudo apt-get install autoconf automake libtool pkg-config gettext libjson-c-dev flex bison libpcap-dev
           sudo apt-get install rrdtool librrd-dev parallel
-      - name: Install Ubuntu Prerequisites [Mingw-w64] (runs only on ubuntu jobs)
-        if: startsWith(matrix.os, 'ubuntu') && !endsWith(matrix.os, 'arm') && !startsWith(matrix.msan, '--with-') && !startsWith(matrix.nBPF, 'nBPF') && !startsWith(matrix.global_context, '--without') # Only on a few "standard" builds
-        run: |
-          sudo apt-get install gcc-mingw-w64 libc6-dev
       - name: Install Ubuntu Prerequisites (libpcre2)
         if: startsWith(matrix.os, 'ubuntu') && startsWith(matrix.pcre, '--with-pcre2')
         run: |
@@ -150,14 +130,6 @@ jobs:
         if: startsWith(matrix.os, 'ubuntu') && startsWith(matrix.maxminddb, '--with-maxminddb')
         run: |
           sudo apt-get install libmaxminddb-dev
-      - name: Install Ubuntu Prerequisites (nBPF)
-        if: startsWith(matrix.os, 'ubuntu') && startsWith(matrix.nBPF, 'nBPF')
-        run: |
-          git clone https://github.com/ntop/PF_RING.git ../PF_RING
-          cd ../PF_RING/userland/nbpf
-          ./configure
-          make
-          cd -
       - name: Setup Ubuntu specified compiler
         if: startsWith(matrix.os, 'ubuntu-22.04') && ! startsWith(matrix.compiler, 'cc')
         run: |
@@ -171,7 +143,9 @@ jobs:
         if: startsWith(matrix.os, 'macOS')
         run: |
           # Avoid (re)installing pkg-config. See: https://github.com/actions/runner-images/issues/10984
-          brew install coreutils wdiff colordiff autoconf automake libtool gettext json-c rrdtool parallel
+          # Avoid (re)installing  gettext 1.0, to avoid "gettext 1.0 is already installed and up-to-date.
+          # To reinstall 1.0, run: brew reinstall gettext" warning
+          brew install coreutils wdiff colordiff autoconf automake libtool json-c rrdtool parallel
       - name: Install MacOS Prerequisites (libpcre2)
         if: startsWith(matrix.os, 'macOS') && startsWith(matrix.pcre, '--with-pcre2')
         run: |
@@ -182,11 +156,11 @@ jobs:
           brew install libmaxminddb
       - name: Configure nDPI
         run: |
-          ./autogen.sh && ./configure --enable-option-checking=fatal --enable-debug-messages ${{ matrix.msan }} ${{ matrix.pcre }} ${{ matrix.maxminddb }} --enable-tls-sigs ${{ matrix.global_context}}
+          ./autogen.sh && ./configure --enable-option-checking=fatal --enable-debug-messages ${{ matrix.msan }} ${{ matrix.pcre }} ${{ matrix.maxminddb }}
       - name: Build nDPI
         run: |
           make -j all
-          make -C example ndpiSimpleIntegration
+          make -C example
           make -C rrdtool
       - name: Print nDPI long help
         run: |
@@ -199,91 +173,23 @@ jobs:
           test ! -r /tmp/ndpi/usr/include/ndpi/ndpi_private.h
           file /tmp/ndpi/usr/lib/libndpi.a
           file /tmp/ndpi/usr/lib/libndpi.so*
-      - name: Test nDPI [SYMBOLS]
-        if: startsWith(matrix.os, 'ubuntu') && !endsWith(matrix.os, 'arm') && !startsWith(matrix.msan, '--with-') && !startsWith(matrix.nBPF, 'nBPF') && !startsWith(matrix.global_context, '--without') # Only on a few "standard" builds
+      - name: Tests
         run: |
-          ./utils/check_symbols.sh || { FAILED=$?; echo "::error file=${NDPI_LIB}::Unwanted libc symbols found: ${FAILED}. Please make sure to use only ndpi_malloc/ndpi_calloc/ndpi_realloc/ndpi_free wrapper instead of malloc/calloc/realloc/free."; false; }
-        env:
-          NDPI_LIB: src/lib/libndpi.a
-      - name: Test nDPI [DIFF]
-        run: |
-          NDPI_FORCE_PARALLEL_UTESTS=1 NDPI_SKIP_PARALLEL_BAR=1 ./tests/do.sh
-      - name: Test nDPI [UNIT]
-        run: |
+          NDPI_FORCE_PARALLEL_UTESTS=1 NDPI_FORCE_PARALLEL_CONFIGS=1 NDPI_SKIP_PARALLEL_BAR=1 ./tests/do.sh
           ./tests/do-unit.sh
-      - name: Test nDPI [DGA]
-        run: |
           ./tests/do-dga.sh
-      - name: Generate/Verify tarball
-        if: startsWith(matrix.os, 'ubuntu-latest')
-        run: |
-          make dist
-          ./utils/verify_dist_tarball.sh
-      - name: Build Debian/Ubuntu package
-        if: startsWith(matrix.os, 'ubuntu-24.04') && !endsWith(matrix.os, 'arm') && startsWith(matrix.compiler, 'cc')
-        run: |
-          cd packages/ubuntu
-          ./configure --enable-no-sign
-          make
-          cd ../..
-      - name: Build nDPI [Mingw-w64] (runs only on ubuntu jobs)
-        if: startsWith(matrix.os, 'ubuntu') && !endsWith(matrix.os, 'arm') && !startsWith(matrix.msan, '--with-') && !startsWith(matrix.nBPF, 'nBPF') && !startsWith(matrix.global_context, '--without') # Only on a few "standard" builds
-        run: |
-          make distclean
-          ./autogen.sh && ./configure --enable-option-checking=fatal --enable-debug-messages --enable-tls-sigs --host=x86_64-w64-mingw32
-          make -j $(nproc) all
-        env:
-          CC:
-
-  test-lto-gold:
-    # Options used by oss-fuzz: we only want to check that everything compile fine; no need to run the tests
-    name: LTO and Gold Linker ${{ matrix.compiler }}
-    runs-on: ubuntu-24.04
-    env:
-      CC: ${{ matrix.compiler }}
-      CFLAGS: -Wextra -Werror -DNDPI_EXTENDED_SANITY_CHECKS
-    strategy:
-      fail-fast: true
-      matrix:
-        compiler: ["gcc-14", "clang-18"] # "Newest" gcc/clang easily available
-        include:
-          - compiler: "gcc-14"
-            ar: "ar"
-            ranlib: "ranlib"
-          - compiler: "clang-18"
-            ar: "llvm-ar-18"
-            ranlib: "llvm-ranlib-18"
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
-      - name: Install Ubuntu Prerequisites
-        run: |
-          sudo apt-get update
-          sudo apt-get install autoconf automake debhelper libtool pkg-config gettext libjson-c-dev flex bison libpcap-dev rrdtool librrd-dev parallel
-      - name: Configure nDPI
-        run: |
-          ./autogen.sh && AR=${{ matrix.ar }} RANLIB=${{ matrix.ranlib }} ./configure --enable-option-checking=fatal --enable-debug-messages --with-sanitizer --with-lto-and-gold-linker
-      - name: Build nDPI
-        run: |
-          make -j $(nproc) all
-          make -j $(nproc) -C example ndpiSimpleIntegration
-          make -j $(nproc) -C rrdtool
-      - name: Print nDPI long help
-        run: |
-          cd ./example && ./ndpiReader -H
 
   test-windows:
     name: ${{ matrix.os }} (msys2)
     runs-on: ${{ matrix.os }}
     env:
-      CFLAGS: -Wextra -Werror -DNDPI_EXTENDED_SANITY_CHECKS
+      CFLAGS: -Werror -DNDPI_EXTENDED_SANITY_CHECKS -g -O2
     strategy:
       fail-fast: true
       matrix:
         os: ["windows-latest"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
       - name: Install Windows msys2 prerequisites
@@ -294,7 +200,7 @@ jobs:
           install: git mingw-w64-x86_64-toolchain automake1.16 automake-wrapper autoconf libtool make mingw-w64-x86_64-json-c mingw-w64-x86_64-crt-git mingw-w64-x86_64-pcre mingw-w64-x86_64-libpcap parallel
       - name: Configure nDPI on Windows msys2
         run: |
-          msys2 -c './autogen.sh && ./configure --enable-option-checking=fatal --enable-debug-messages --enable-tls-sigs --disable-npcap'
+          msys2 -c './autogen.sh && ./configure --enable-option-checking=fatal --enable-debug-messages --disable-npcap'
       - name: Build nDPI on Windows msys2
         run: |
           msys2 -c 'make -j all'
@@ -302,58 +208,71 @@ jobs:
       - name: Tests
         run: |
           # Don't know why but lately the script in parallel mode is stuck...
-          #msys2 -c 'NDPI_FORCE_PARALLEL_UTESTS=1 NDPI_SKIP_PARALLEL_BAR=1 ./tests/do.sh'
+          #msys2 -c 'NDPI_FORCE_PARALLEL_UTESTS=1 NDPI_FORCE_PARALLEL_CONFIGS=1 NDPI_SKIP_PARALLEL_BAR=1 ./tests/do.sh'
           msys2 -c './tests/do.sh'
           msys2 -c './tests/do-unit.sh'
           msys2 -c './tests/do-dga.sh'
 
-  test-out-of-tree-builds:
-    name: Out-of-tree builds
+  mingw-64:
+    name: Mingw-64 (ubuntu-latest)
     runs-on: ubuntu-latest
     env:
-      CFLAGS: -Wextra -Werror -DNDPI_EXTENDED_SANITY_CHECKS
+      CC:
+      CFLAGS: -Werror -DNDPI_EXTENDED_SANITY_CHECKS -g -O2
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
-          fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
+          fetch-depth: 0
       - name: Install Ubuntu Prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install autoconf automake debhelper libtool pkg-config gettext libjson-c-dev flex bison libpcap-dev rrdtool librrd-dev parallel
-      - name: Autogen nDPI
+          sudo apt-get install autoconf automake libtool pkg-config gettext flex bison libjson-c-dev libpcap-dev gcc-mingw-w64 libc6-dev
+      - name: Configure nDPI
         run: |
-          ./autogen.sh
-      - name: Configure and build nDPI (standard)
+          ./autogen.sh && ./configure --enable-option-checking=fatal --enable-debug-messages --host=x86_64-w64-mingw32 
+      - name: Build nDPI
         run: |
-          mkdir -p build-standard
-          cd build-standard
-          ../configure
           make -j $(nproc) all
-          make -j $(nproc) -C example ndpiSimpleIntegration
-          make -j $(nproc) -C rrdtool
-          cd -
-      - name: Configure and build nDPI (fuzzing)
+          make -j $(nproc) -C example
+          #make -j $(nproc) -C rrdtool
+      # No tests, only build
+
+  tarball-and-package:
+    name: Tarball/Package/Symbols checks (ubuntu-latest)
+    runs-on: ubuntu-latest
+    env:
+      CFLAGS:
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Install Ubuntu Prerequisites
         run: |
-          mkdir -p build-fuzzing
-          cd build-fuzzing
-          CC=clang CXX=clang++ ../configure --with-sanitizer --enable-fuzztargets
+          sudo apt-get update
+          sudo apt-get install autoconf debhelper automake libtool pkg-config gettext flex bison libjson-c-dev libpcap-dev rrdtool librrd-dev
+      - name: Configure nDPI
+        run: |
+          ./autogen.sh && ./configure
+      - name: Build nDPI
+        run: |
           make -j $(nproc) all
-          make -j $(nproc) -C example ndpiSimpleIntegration
+          make -j $(nproc) -C example
           make -j $(nproc) -C rrdtool
-          cd -
-      - name: Print nDPI long help
+      # No need to run tests on this job
+      - name: Generate/Verify tarball
         run: |
-          cd ./build-standard/example && ./ndpiReader -H && cd -
-          cd ./build-fuzzing/example && ./ndpiReader -H && cd -
-      - name: Tests #We are only intersting into tests scripts being valid --> less tests than usual
+          make dist
+          ./utils/verify_dist_tarball.sh
+      - name: Build Debian/Ubuntu package
         run: |
-          cd build-standard
-          NDPI_FORCE_PARALLEL_UTESTS=1 NDPI_SKIP_PARALLEL_BAR=1 NDPI_TEST_ONLY_RECENTLY_UPDATED_PCAPS=1 ./tests/do.sh
-          ./tests/do-unit.sh
-          ./tests/do-dga.sh
-          cd -
-          cd build-fuzzing
-          MAX_TOTAL_TIME=10 NDPI_FORCE_PARALLEL_UTESTS=1 NDPI_SKIP_PARALLEL_BAR=1 NDPI_TEST_ONLY_RECENTLY_UPDATED_PCAPS=1 ./tests/do.sh
-          ./tests/do-unit.sh
-          ./tests/do-dga.sh
-          cd -
+          cd packages/ubuntu
+          ./configure --enable-no-sign
+          make
+          cd ../..
+      - name: Test nDPI [SYMBOLS]
+        run: |
+          ./utils/check_symbols.sh || { FAILED=$?; echo "::error file=${NDPI_LIB}::Unwanted libc symbols found: ${FAILED}. Please make sure to use only ndpi_malloc/ndpi_calloc/ndpi_realloc/ndpi_free wrapper instead of malloc/calloc/realloc/free."; false; }
+        env:
+          NDPI_LIB: src/lib/libndpi.a
+
+

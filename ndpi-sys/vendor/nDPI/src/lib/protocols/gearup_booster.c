@@ -1,7 +1,7 @@
 /*
  * gearup_booster.c
  *
- * Copyright (C) 2011-25 - ntop.org
+ * Copyright (C) 2011-26 - ntop.org
  *
  * nDPI is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -42,18 +42,58 @@ static void ndpi_search_gearup_booster(struct ndpi_detection_module_struct *ndpi
 
   NDPI_LOG_DBG(ndpi_struct, "search GearUP Booster\n");
 
-  if (packet->udp->source != htons(9999) && packet->udp->dest != htons(9999))
-  {
-    NDPI_EXCLUDE_DISSECTOR(ndpi_struct, flow);
+  if (packet->tcp != NULL) {
+    if (packet->payload_packet_len < 16) {
+      NDPI_EXCLUDE_DISSECTOR(ndpi_struct, flow);
+      return;
+    }
+
+    if (flow->packet_counter <= 3) {
+      int32_t pdu_length = ntohl(get_u_int32_t(packet->payload, 0));
+      if (pdu_length != packet->payload_packet_len - 4) {
+        NDPI_EXCLUDE_DISSECTOR(ndpi_struct, flow);
+        return;
+      }
+    }
+    if (packet->payload[4] != 0x08) {
+      NDPI_EXCLUDE_DISSECTOR(ndpi_struct, flow);
+      return;
+    }
+    if (flow->packet_counter <= 2) {
+      if (packet->payload_packet_len > 128 ||
+          packet->payload[5] != 0x01)
+      {
+        NDPI_EXCLUDE_DISSECTOR(ndpi_struct, flow);
+        return;
+      }
+    } else {
+      if (get_u_int16_t(packet->payload, 7) != ntohs(0x0510) ||
+          get_u_int16_t(packet->payload, 13) != ntohs(0x2000))
+      {
+        NDPI_EXCLUDE_DISSECTOR(ndpi_struct, flow);
+        return;
+      }
+    }
+    if (flow->packet_counter >= 4) {
+      ndpi_int_gearup_booster_add_connection(ndpi_struct, flow);
+    }
     return;
   }
 
-  if (flow->packet_counter == 1)
-  {
-    if (packet->packet_direction != 0 || packet->udp->dest != htons(9999))
+  if (packet->udp != NULL) {
+    if (packet->udp->source != htons(9999) && packet->udp->dest != htons(9999))
     {
       NDPI_EXCLUDE_DISSECTOR(ndpi_struct, flow);
       return;
+    }
+
+    if (flow->packet_counter == 1)
+    {
+      if (packet->packet_direction != 0 || packet->udp->dest != htons(9999))
+      {
+        NDPI_EXCLUDE_DISSECTOR(ndpi_struct, flow);
+        return;
+      }
     }
   }
 
@@ -84,9 +124,10 @@ static void ndpi_search_gearup_booster(struct ndpi_detection_module_struct *ndpi
 
 void init_gearup_booster_dissector(struct ndpi_detection_module_struct *ndpi_struct)
 {
-  register_dissector("GeaUP_Booster", ndpi_struct,
+  ndpi_register_dissector("GeaUP_Booster", ndpi_struct,
                      ndpi_search_gearup_booster,
-                     NDPI_SELECTION_BITMASK_PROTOCOL_V4_V6_UDP_WITH_PAYLOAD,
+                     NDPI_SELECTION_BITMASK_PROTOCOL_V4_V6_TCP_OR_UDP_WITH_PAYLOAD_WITHOUT_RETRANSMISSION,
+                     DISSECTOR_LICENSE_LGPL,
                      1, NDPI_PROTOCOL_GEARUP_BOOSTER);
 }
 

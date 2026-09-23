@@ -66,8 +66,9 @@ void ndpi_search_hots(struct ndpi_detection_module_struct *ndpi_struct, struct n
 
 void init_hots_dissector(struct ndpi_detection_module_struct *ndpi_struct)
 {
-  register_dissector("HOTS", ndpi_struct,
+  ndpi_register_dissector("HOTS", ndpi_struct,
                      ndpi_search_hots,
                      NDPI_SELECTION_BITMASK_PROTOCOL_UDP_WITH_PAYLOAD, /* Only IPv4 UDP traffic is expected. */
+                     DISSECTOR_LICENSE_LGPL,
                      1, NDPI_PROTOCOL_HOTS);
 }

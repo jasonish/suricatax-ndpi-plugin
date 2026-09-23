@@ -1,7 +1,7 @@
 /*
  * ndpi_memory.c
  *
- * Copyright (C) 2011-25 - ntop.org
+ * Copyright (C) 2011-26 - ntop.org
  *
  * nDPI is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -169,4 +169,14 @@ char *ndpi_strdup(const char *s) {
   }
 
   return(m);
+}
+
+/* ****************************************** */
+
+void *ndpi_memdup(const uint8_t *orig, size_t len)
+{
+  void *dest = ndpi_malloc(len);
+  if(dest)
+    memcpy(dest, orig, len);
+  return dest;
 }

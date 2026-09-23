@@ -123,6 +123,9 @@
     <ClCompile Include="..\example\reader_util.c">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
     </ClCompile>
+    <ClCompile Include="..\example\utests.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+    </ClCompile>
     <ClCompile Include="..\src\lib\ndpi_analyze.c" />
     <ClCompile Include="..\src\lib\ndpi_bitmap.c" />
     <ClCompile Include="..\src\lib\ndpi_classify.c" />
@@ -141,6 +144,7 @@
     <ClCompile Include="..\src\lib\ndpi_hash.c" />
     <ClCompile Include="..\src\lib\ndpi_domain_classify.c" />
     <ClCompile Include="..\src\lib\ndpi_bitmap64_fuse.c" />
+    <ClCompile Include="..\src\lib\ndpi_plugin.c" />
     <ClCompile Include="..\src\lib\protocols\activision.c" />
     <ClCompile Include="..\src\lib\protocols\afp.c" />
     <ClCompile Include="..\src\lib\protocols\ajp.c" />
@@ -148,7 +152,6 @@
     <ClCompile Include="..\src\lib\protocols\amazon_video.c" />
     <ClCompile Include="..\src\lib\protocols\among_us.c" />
     <ClCompile Include="..\src\lib\protocols\amqp.c" />
-    <ClCompile Include="..\src\lib\protocols\apple_push.c" />
     <ClCompile Include="..\src\lib\protocols\avast.c" />
     <ClCompile Include="..\src\lib\protocols\avast_securedns.c" />
     <ClCompile Include="..\src\lib\protocols\bacnet.c" />
@@ -179,6 +182,7 @@
     <ClCompile Include="..\src\lib\protocols\i3d.c" />
     <ClCompile Include="..\src\lib\protocols\iec60870-5-104.c" />
     <ClCompile Include="..\src\lib\protocols\imo.c" />
+    <ClCompile Include="..\src\lib\protocols\iris.c" />
     <ClCompile Include="..\src\lib\protocols\ipsec.c" />
     <ClCompile Include="..\src\lib\protocols\kismet.c" />
     <ClCompile Include="..\src\lib\protocols\line.c" />
@@ -228,6 +232,7 @@
     <ClCompile Include="..\src\lib\third_party\src\kdtree.c" />
     <ClCompile Include="..\src\lib\third_party\src\ball.c" />
     <ClCompile Include="..\src\lib\third_party\src\aes.c" />
+    <ClCompile Include="..\src\lib\third_party\src\isolation_forest.c" />
     <ClCompile Include="..\src\lib\protocols\armagetron.c" />
     <ClCompile Include="..\src\lib\protocols\bgp.c" />
     <ClCompile Include="..\src\lib\protocols\bittorrent.c" />
@@ -259,7 +264,6 @@
     <ClCompile Include="..\src\lib\protocols\http.c" />
     <ClCompile Include="..\src\lib\protocols\http2.c" />
     <ClCompile Include="..\src\lib\protocols\iax.c" />
-    <ClCompile Include="..\src\lib\protocols\icecast.c" />
     <ClCompile Include="..\src\lib\protocols\ipp.c" />
     <ClCompile Include="..\src\lib\protocols\irc.c" />
     <ClCompile Include="..\src\lib\protocols\jabber.c" />
@@ -274,14 +278,17 @@
     <ClCompile Include="..\src\lib\protocols\mail_smtp.c" />
     <ClCompile Include="..\src\lib\protocols\nexon.c" />
     <ClCompile Include="..\src\lib\protocols\megaco.c" />
+    <ClCompile Include="..\src\lib\protocols\meshtastic.c" />
     <ClCompile Include="..\src\lib\protocols\mgcp.c" />
     <ClCompile Include="..\src\lib\protocols\monero.c" />
     <ClCompile Include="..\src\lib\protocols\mpegts.c" />
     <ClCompile Include="..\src\lib\protocols\mqtt.c" />
+    <ClCompile Include="..\src\lib\protocols\msgpack.c" />
     <ClCompile Include="..\src\lib\protocols\mssql_tds.c" />
     <ClCompile Include="..\src\lib\protocols\mudfish.c" />
     <ClCompile Include="..\src\lib\protocols\munin.c" />
     <ClCompile Include="..\src\lib\protocols\mysql.c" />
+    <ClCompile Include="..\src\lib\protocols\nebula.c" />
     <ClCompile Include="..\src\lib\protocols\netbios.c" />
     <ClCompile Include="..\src\lib\protocols\netflow.c" />
     <ClCompile Include="..\src\lib\protocols\nfs.c" />
@@ -309,6 +316,7 @@
     <ClCompile Include="..\src\lib\protocols\rtsp.c" />
     <ClCompile Include="..\src\lib\protocols\rx.c" />
     <ClCompile Include="..\src\lib\protocols\samsung_sdp.c" />
+    <ClCompile Include="..\src\lib\protocols\sbe.c" />
     <ClCompile Include="..\src\lib\protocols\sflow.c" />
     <ClCompile Include="..\src\lib\protocols\sip.c" />
     <ClCompile Include="..\src\lib\protocols\skinny.c" />
@@ -344,7 +352,6 @@
     <ClCompile Include="..\src\lib\protocols\whoisdas.c" />
     <ClCompile Include="..\src\lib\protocols\xbox.c" />
     <ClCompile Include="..\src\lib\protocols\xdmcp.c" />
-    <ClCompile Include="..\src\lib\protocols\zattoo.c" />
     <ClCompile Include="..\src\lib\protocols\zeromq.c" />
     <ClCompile Include="..\src\lib\protocols\ptpv2.c" />
     <ClCompile Include="..\src\lib\protocols\hart-ip.c" />
@@ -360,6 +367,7 @@
     <ClCompile Include="..\src\lib\protocols\hislip.c" />
     <ClCompile Include="..\src\lib\protocols\uftp.c" />
     <ClCompile Include="..\src\lib\protocols\openflow.c" />
+    <ClCompile Include="..\src\lib\protocols\json.c" />
     <ClCompile Include="..\src\lib\protocols\json-rpc.c" />
     <ClCompile Include="..\src\lib\protocols\kafka.c" />
     <ClCompile Include="..\src\lib\protocols\nomachine.c" />
@@ -391,6 +399,7 @@
     <ClCompile Include="..\src\lib\protocols\iqiyi.c" />
     <ClCompile Include="..\src\lib\protocols\egd.c" />
     <ClCompile Include="..\src\lib\protocols\cod_mobile.c" />
+    <ClCompile Include="..\src\lib\protocols\freefire.c" />
     <ClCompile Include="..\src\lib\protocols\zug.c" />
     <ClCompile Include="..\src\lib\protocols\jrmi.c" />
     <ClCompile Include="..\src\lib\protocols\nano.c" />
@@ -403,8 +412,10 @@
     <ClCompile Include="..\src\lib\protocols\msdo.c" />
     <ClCompile Include="..\src\lib\protocols\melsec.c" />
     <ClCompile Include="..\src\lib\protocols\hamachi.c" />
+    <ClCompile Include="..\src\lib\protocols\netmotion.c" />
     <ClCompile Include="..\src\lib\protocols\glbp.c" />
     <ClCompile Include="..\src\lib\protocols\matter.c" />
+    <ClCompile Include="..\src\lib\protocols\yggdrasil.c" />
     <ClCompile Include="..\src\lib\third_party\src\gcrypt_light.c" />
     <ClCompile Include="..\src\lib\third_party\src\libcache.c" />
     <ClCompile Include="..\src\lib\third_party\src\libinjection_html5.c" />

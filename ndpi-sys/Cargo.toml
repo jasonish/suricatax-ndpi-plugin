@@ -1,10 +1,10 @@
 [package]
 name = "ndpi-sys"
-version = "5.0.0"
+version = "6.0.0"
 edition = "2021"
 rust-version = "1.75.0"
-description = "Rust -sys bindings for vendored nDPI 5.0 source"
-license = "LGPL-3.0-only"
+description = "Rust -sys bindings for vendored nDPI 6.0 source"
+license = "LGPL-3.0-only AND LicenseRef-nDPI-Dual-License"
 readme = "README.md"
 publish = false
 links = "ndpi"

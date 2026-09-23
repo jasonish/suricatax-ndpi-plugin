@@ -1,7 +1,7 @@
 /*
  * ndpi_util.h
  *
- * Copyright (C) 2011-25 - ntop.org
+ * Copyright (C) 2011-26 - ntop.org
  *
  * nDPI is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -173,6 +173,7 @@ enum info_type {
     INFO_SIP,
     INFO_FASTCGI,
     INFO_BFCP,
+    INFO_IPSEC,
 };
 
 typedef struct {
@@ -231,33 +232,33 @@ typedef struct ndpi_flow_info {
 
   union {
     char info[256];
-    
+
     struct {
       unsigned char auth_failed;
       char username[127];
       char password[128];
     } ftp_imap_pop_smtp;
-    
+
     struct {
       char domain[85];
       char hostname[85];
       char username[86];
     } kerberos;
-    
+
     struct {
       char ip[16];
       char port[6];
       char hostname[48];
       char fqdn[48];
     } softether;
-    
+
     struct {
       char identity_uuid[36];
       char machine[48];
       char platform[32];
       char services[48];
     } tivoconnect;
-    
+
     struct  {
       uint16_t result_code;
       uint16_t internal_port;
@@ -297,7 +298,7 @@ typedef struct ndpi_flow_info {
   struct {
     char currency[16];
   } mining;
-  
+
   struct {
     u_int16_t ssl_version;
     char server_info[64],
@@ -305,7 +306,7 @@ typedef struct ndpi_flow_info {
       *advertised_alpns, *negotiated_alpn, *tls_supported_versions,
       *tls_issuerDN, *tls_subjectDN,
       ja3_server[33], ja4_client[37], *ja4_client_raw,
-      sha1_cert_fingerprint[20];
+      sha1_cert_fingerprint[20], ssh_key_exchange_method[24];
     u_int8_t sha1_cert_fingerprint_set;
     struct tls_heuristics browser_heuristics;
 
@@ -318,10 +319,12 @@ typedef struct ndpi_flow_info {
     ndpi_cipher_weakness client_unsafe_cipher, server_unsafe_cipher;
 
     u_int32_t quic_version;
-
-    u_int8_t num_blocks;
-    struct ndpi_tls_block blocks[NDPI_MAX_NUM_TLS_APPL_BLOCKS];
   } ssh_tls;
+
+  struct {
+    u_int8_t num_blocks;
+    struct ndpi_tls_block *blocks;
+  } tls;
 
   struct {
     char url[256], request_content_type[64], content_type[64],
@@ -336,7 +339,7 @@ typedef struct ndpi_flow_info {
       relayed_address, response_origin, other_address;
     u_int16_t rtp_counters[2];
   } stun;
-  
+
   struct {
     char *username, *password;
   } telnet;
@@ -347,10 +350,12 @@ typedef struct ndpi_flow_info {
     u_int16_t transaction_id;
   } dns;
 
+  struct ndpi_ipsec_details ipsec;
+
   u_int8_t multimedia_flow_types;
-  
+
   void *src_id, *dst_id;
-  char *tcp_fingerprint, *ndpi_fingerprint;
+  char *tcp_fingerprint, *ndpi_client_fingerprint, *ndpi_server_fingerprint;
   struct ndpi_entropy *entropy;
   struct ndpi_entropy *last_entropy;
 
@@ -360,10 +365,10 @@ typedef struct ndpi_flow_info {
 #else
   struct ndpi_bin payload_len_bin;
 #endif
-  
+
   /* Flow payload */
   u_int16_t flow_payload_len;
-  char *flow_payload;  
+  char *flow_payload;
 } ndpi_flow_info_t;
 
 
@@ -447,7 +452,8 @@ int ndpi_stats_init(ndpi_stats_t *s, uint32_t num_protocols);
 void ndpi_stats_reset(ndpi_stats_t *s);
 
 /* TODO: remove wrappers parameters and use ndpi global, when their initialization will be fixed... */
-struct ndpi_workflow * ndpi_workflow_init(const struct ndpi_workflow_prefs * prefs, pcap_t * pcap_handle, int do_init_flows_root, ndpi_serialization_format serialization_format, struct ndpi_global_context *g_ctx);
+struct ndpi_workflow * ndpi_workflow_init(const struct ndpi_workflow_prefs * prefs, pcap_t * pcap_handle, int do_init_flows_root, ndpi_serialization_format serialization_format, struct ndpi_global_context *g_ctx,
+                                          enum ndpi_license_type license_type);
 
 
 /* workflow main free function */

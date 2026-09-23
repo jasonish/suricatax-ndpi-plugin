@@ -1,7 +1,7 @@
 /*
  * ndpiReader.c
  *
- * Copyright (C) 2011-25 - ntop.org
+ * Copyright (C) 2011-26 - ntop.org
  *
  * nDPI is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -40,7 +40,7 @@ int main(int argc, char *argv[]) {
     return(-1);
   }
   
-  assert(ndpi_str = ndpi_init_detection_module(NULL));
+  assert(ndpi_str = ndpi_init_detection_module(NULL, NDPI_LICENSE_NOT_FOR_PROFIT_LGPL));
   assert(ndpi_load_domain_suffixes(ndpi_str, (char*)lists_path) == 0);
   
   while (fgets(line, sizeof(line), fd) != NULL) {
