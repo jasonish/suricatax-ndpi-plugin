@@ -1,6 +1,6 @@
 [package]
 name = "suricatax-ndpi-plugin"
-version = "0.2.1"
+version = "0.2.1+ndpi5.0"
 edition = "2021"
 rust-version = "1.75.0"
 description = "Suricata 8.0.x nDPI 5 plugin"
