@@ -24,4 +24,3 @@ crate-type = ["cdylib"]
 ndpi-sys = { version = "6.0.0", path = "ndpi-sys" }
 serde_json = { version = "1.0", features = ["preserve_order"] }
 suricatax80-plugin-utils = { version = "0.2.0-alpha.2" }
-
