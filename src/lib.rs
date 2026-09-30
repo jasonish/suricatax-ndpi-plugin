@@ -1,19 +1,5 @@
-/* Copyright (C) 2026 Open Information Security Foundation
- *
- * You can copy, redistribute or modify this Program under the terms of
- * the GNU General Public License version 2 as published by the Free
- * Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * version 2 along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- */
+// SPDX-FileCopyrightText: 2026 Open Information Security Foundation
+// SPDX-License-Identifier: LGPL-3.0-only
 
 #![allow(non_snake_case)]
 
@@ -486,7 +472,7 @@ static PLUGIN: suricata::SCPlugin = suricata::SCPlugin {
     suricata_version: suricata::SC_PACKAGE_VERSION.as_ptr().cast(),
     plugin_version: concat!(env!("CARGO_PKG_VERSION"), "\0").as_ptr().cast(),
     name: b"ndpi\0".as_ptr().cast(),
-    author: b"Luca Deri\0".as_ptr().cast(),
+    author: b"Jason Ish\0".as_ptr().cast(),
     license: b"LGPL-3.0-only\0".as_ptr().cast(),
     Init: Some(ndpi_init),
 };
