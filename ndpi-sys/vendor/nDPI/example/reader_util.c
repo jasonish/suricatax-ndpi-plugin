@@ -1,7 +1,7 @@
 /*
  * reader_util.c
  *
- * Copyright (C) 2011-25 - ntop.org
+ * Copyright (C) 2011-26 - ntop.org
  *
  * This file is part of nDPI, an open source deep packet inspection
  * library based on the OpenDPI and PACE technology by ipoque GmbH
@@ -82,7 +82,7 @@ static u_int32_t flow_id = 0;
 extern FILE *fingerprint_fp;
 extern char *addr_dump_path;
 extern u_int8_t enable_doh_dot_detection;
-extern int malloc_size_stats;
+extern int alloc_size_stats;
 extern int monitoring_enabled;
 
 /* ****************************************************** */
@@ -410,11 +410,12 @@ void ndpi_stats_reset(ndpi_stats_t *s) {
 struct ndpi_workflow* ndpi_workflow_init(const struct ndpi_workflow_prefs * prefs,
 					 pcap_t * pcap_handle, int do_init_flows_root,
 					 ndpi_serialization_format serialization_format,
-					 struct ndpi_global_context *g_ctx) {
+					 struct ndpi_global_context *g_ctx,
+					 enum ndpi_license_type license_type) {
   struct ndpi_detection_module_struct * module;
   struct ndpi_workflow * workflow;
 
-  module = ndpi_init_detection_module(g_ctx);
+  module = ndpi_init_detection_module(g_ctx, license_type);
 
   if(module == NULL) {
     LOG(NDPI_LOG_ERROR, "global structure initialization failed\n");
@@ -461,6 +462,9 @@ void ndpi_flow_info_freer(void *node) {
 /* ***************************************************** */
 
 static void ndpi_free_flow_tls_data(struct ndpi_flow_info *flow) {
+  if(flow->tls.blocks)
+    ndpi_free(flow->tls.blocks);
+
   if(flow->dhcp_fingerprint) {
     ndpi_free(flow->dhcp_fingerprint);
     flow->dhcp_fingerprint = NULL;
@@ -526,9 +530,14 @@ static void ndpi_free_flow_tls_data(struct ndpi_flow_info *flow) {
     flow->ssh_tls.ja4_client_raw = NULL;
   }
 
-  if(flow->ndpi_fingerprint) {
-    ndpi_free(flow->ndpi_fingerprint);
-    flow->ndpi_fingerprint = NULL;
+  if(flow->ndpi_client_fingerprint) {
+    ndpi_free(flow->ndpi_client_fingerprint);
+    flow->ndpi_client_fingerprint = NULL;
+  }
+
+  if(flow->ndpi_server_fingerprint) {
+    ndpi_free(flow->ndpi_server_fingerprint);
+    flow->ndpi_server_fingerprint = NULL;
   }
 
   if(flow->stun.mapped_address.aps) {
@@ -571,7 +580,6 @@ static void ndpi_free_flow_data_analysis(struct ndpi_flow_info *flow) {
 /* ***************************************************** */
 
 void ndpi_flow_info_free_data(struct ndpi_flow_info *flow) {
-
   ndpi_free_flow_info_half(flow);
   ndpi_term_serializer(&flow->ndpi_flow_serializer);
   ndpi_free_flow_data_analysis(flow);
@@ -819,6 +827,8 @@ static struct ndpi_flow_info *get_ndpi_flow_info(struct ndpi_workflow * workflow
     l4_data_len = l4_packet_len - sizeof(struct ndpi_icmp6hdr);
     *sport = *dport = 0;
   } else {
+    *payload = NULL;
+    *payload_len = 0;
     // non tcp/udp protocols
     *sport = *dport = 0;
     l4_data_len = 0;
@@ -1048,7 +1058,7 @@ static struct ndpi_flow_info *get_ndpi_flow_info6(struct ndpi_workflow * workflo
   const u_int8_t *l4ptr = (((const u_int8_t *) iph6) + sizeof(struct ndpi_ipv6hdr));
   if(ipsize < sizeof(struct ndpi_ipv6hdr) + ip_len)
     return(NULL);
-  if(ndpi_handle_ipv6_extension_headers(ipsize - sizeof(struct ndpi_ipv6hdr), &l4ptr, &ip_len, &l4proto) != 0) {
+  if(ndpi_handle_ipv6_extension_headers(NULL, iph6, ipsize - sizeof(struct ndpi_ipv6hdr), &l4ptr, &ip_len, &l4proto) != 0) {
     return(NULL);
   }
   iph.protocol = l4proto;
@@ -1281,7 +1291,7 @@ static void serialize_monitoring_metadata(struct ndpi_flow_info *flow)
 
 void process_ndpi_collected_info(struct ndpi_workflow * workflow, struct ndpi_flow_info *flow) {
   u_int i;
-  char out[128], *s;
+  char out[512], *s;
 
   if(!flow->ndpi_flow) return;
 
@@ -1516,10 +1526,19 @@ void process_ndpi_collected_info(struct ndpi_workflow * workflow, struct ndpi_fl
 	     flow->ndpi_flow->protos.ssh.client_signature);
     ndpi_snprintf(flow->ssh_tls.server_info, sizeof(flow->ssh_tls.server_info), "%s",
 	     flow->ndpi_flow->protos.ssh.server_signature);
-    ndpi_snprintf(flow->ssh_tls.client_hassh, sizeof(flow->ssh_tls.client_hassh), "%s",
-	     flow->ndpi_flow->protos.ssh.hassh_client);
-    ndpi_snprintf(flow->ssh_tls.server_hassh, sizeof(flow->ssh_tls.server_hassh), "%s",
-	     flow->ndpi_flow->protos.ssh.hassh_server);
+
+    if(flow->ndpi_flow->protos.ssh.hassh_client[0] != '\0')
+      ndpi_snprintf(flow->ssh_tls.client_hassh, sizeof(flow->ssh_tls.client_hassh), "%s",
+		    flow->ndpi_flow->protos.ssh.hassh_client);
+
+    if(flow->ndpi_flow->protos.ssh.hassh_server[0] != '\0')
+      ndpi_snprintf(flow->ssh_tls.server_hassh, sizeof(flow->ssh_tls.server_hassh), "%s",
+		    flow->ndpi_flow->protos.ssh.hassh_server);
+
+    if(flow->ndpi_flow->protos.ssh.key_exchange_method)
+      ndpi_snprintf(flow->ssh_tls.ssh_key_exchange_method,
+		    sizeof(flow->ssh_tls.ssh_key_exchange_method), "%s",
+		    flow->ndpi_flow->protos.ssh.key_exchange_method);
   }
   /* TLS/QUIC/DTLS/MAIL_S/FTPS */
   else if(ndpi_stack_is_tls_like(&flow->detected_protocol.protocol_stack)) {
@@ -1537,8 +1556,11 @@ void process_ndpi_collected_info(struct ndpi_workflow * workflow, struct ndpi_fl
     ndpi_snprintf(flow->ssh_tls.ja4_client, sizeof(flow->ssh_tls.ja4_client), "%s",
 	     flow->ndpi_flow->protos.tls_quic.ja4_client);
 
-    if(flow->ndpi_flow->ndpi.fingerprint)
-      flow->ndpi_fingerprint = ndpi_strdup(flow->ndpi_flow->ndpi.fingerprint);
+    if(flow->ndpi_flow->ndpi.client_fingerprint)
+      flow->ndpi_client_fingerprint = ndpi_strdup(flow->ndpi_flow->ndpi.client_fingerprint);
+
+    if(flow->ndpi_flow->ndpi.server_fingerprint)
+      flow->ndpi_server_fingerprint = ndpi_strdup(flow->ndpi_flow->ndpi.server_fingerprint);
 
     if(flow->ndpi_flow->protos.tls_quic.ja4_client_raw)
       flow->ssh_tls.ja4_client_raw = ndpi_strdup(flow->ndpi_flow->protos.tls_quic.ja4_client_raw);
@@ -1583,17 +1605,25 @@ void process_ndpi_collected_info(struct ndpi_workflow * workflow, struct ndpi_fl
       if(enable_doh_dot_detection) {
 	/* For TLS we use TLS block lenght instead of payload lenght */
 	ndpi_reset_bin(&flow->payload_len_bin);
-	
+
 	for(i=0; i<flow->ndpi_flow->l4.tcp.tls.num_tls_blocks; i++) {
 	  u_int16_t len = abs(flow->ndpi_flow->l4.tcp.tls.tls_blocks[i].len);
-	  
+
 	  /* printf("[TLS_LEN] %u\n", len); */
 	  ndpi_inc_bin(&flow->payload_len_bin, plen2slot(len), 1);
 	}
       }
-      
-      flow->ssh_tls.num_blocks = flow->ndpi_flow->l4.tcp.tls.num_tls_blocks;
-      memcpy(flow->ssh_tls.blocks, flow->ndpi_flow->l4.tcp.tls.tls_blocks, sizeof(flow->ndpi_flow->l4.tcp.tls.tls_blocks));
+
+      flow->tls.num_blocks = flow->ndpi_flow->l4.tcp.tls.num_tls_blocks;
+      if(flow->tls.num_blocks > 0) {
+	u_int len = sizeof(struct ndpi_tls_block)*flow->tls.num_blocks;
+
+	flow->tls.blocks = (struct ndpi_tls_block*)malloc(len);
+	if(flow->tls.blocks != NULL)
+	  memcpy(flow->tls.blocks, flow->ndpi_flow->l4.tcp.tls.tls_blocks, len);
+	else
+	  flow->tls.num_blocks = 0;
+      }
     }
   }
   /* FASTCGI */
@@ -1602,6 +1632,9 @@ void process_ndpi_collected_info(struct ndpi_workflow * workflow, struct ndpi_fl
     flow->fast_cgi.method = flow->ndpi_flow->protos.fast_cgi.method;
     ndpi_snprintf(flow->fast_cgi.user_agent, sizeof(flow->fast_cgi.user_agent), "%s", flow->ndpi_flow->protos.fast_cgi.user_agent);
     ndpi_snprintf(flow->fast_cgi.url, sizeof(flow->fast_cgi.url), "%s", flow->ndpi_flow->protos.fast_cgi.url);
+  } else if(ndpi_stack_contains(&flow->detected_protocol.protocol_stack, NDPI_PROTOCOL_IPSEC)) {
+    flow->info_type = INFO_IPSEC;
+    memcpy(&flow->ipsec,  &flow->ndpi_flow->protos.ipsec, sizeof(flow->ipsec));
   }
 
   if(!monitoring_enabled) {
@@ -1810,7 +1843,7 @@ static struct ndpi_proto packet_processing(struct ndpi_workflow * workflow,
 
     workflow->stats.ip_packet_count++;
     workflow->stats.total_wire_bytes += rawsize + 24 /* CRC etc */,
-      workflow->stats.total_ip_bytes += rawsize;
+    workflow->stats.total_ip_bytes += rawsize;
     ndpi_flow = flow->ndpi_flow;
 
     if(tcph != NULL){
@@ -1838,7 +1871,7 @@ static struct ndpi_proto packet_processing(struct ndpi_workflow * workflow,
       }
     }
 
-    memcpy(&flow->flow_last_pkt_time, &when, sizeof(when));
+    flow->flow_last_pkt_time = when;
 
     if(src_to_dst_direction) {
       if(flow->src2dst_last_pkt_time.tv_sec) {
@@ -1855,7 +1888,7 @@ static struct ndpi_proto packet_processing(struct ndpi_workflow * workflow,
 
       ndpi_data_add_value(flow->pktlen_c_to_s, rawsize);
       flow->src2dst_packets++, flow->src2dst_bytes += rawsize, flow->src2dst_goodput_bytes += payload_len;
-      memcpy(&flow->src2dst_last_pkt_time, &when, sizeof(when));
+      flow->src2dst_last_pkt_time = when;
 
 #ifdef DIRECTION_BINS
       if(payload_len && (flow->src2dst_packets < MAX_NUM_BIN_PKTS))
@@ -1874,7 +1907,7 @@ static struct ndpi_proto packet_processing(struct ndpi_workflow * workflow,
       ndpi_data_add_value(flow->pktlen_s_to_c, rawsize);
       flow->dst2src_packets++, flow->dst2src_bytes += rawsize, flow->dst2src_goodput_bytes += payload_len;
       flow->risk &= ~(1ULL << NDPI_UNIDIRECTIONAL_TRAFFIC); /* Clear bit */
-      memcpy(&flow->dst2src_last_pkt_time, &when, sizeof(when));
+      flow->dst2src_last_pkt_time = when;
 
 #ifdef DIRECTION_BINS
       if(payload_len && (flow->dst2src_packets < MAX_NUM_BIN_PKTS))
@@ -1972,6 +2005,9 @@ static struct ndpi_proto packet_processing(struct ndpi_workflow * workflow,
       ((proto == IPPROTO_UDP && (max_num_udp_dissected_pkts > 0 && flow->src2dst_packets + flow->dst2src_packets >= max_num_udp_dissected_pkts)) ||
        (proto == IPPROTO_TCP && (max_num_tcp_dissected_pkts > 0 && flow->src2dst_packets + flow->dst2src_packets >= max_num_tcp_dissected_pkts))) ? 1 : 0;
 
+    if(flow->ndpi_flow->state == NDPI_STATE_MONITORING)
+      enough_packets = 0;
+
 #if 0
     printf("%s()\n", __FUNCTION__);
 #endif
@@ -1988,13 +2024,24 @@ static struct ndpi_proto packet_processing(struct ndpi_workflow * workflow,
     /* Set here any information (easily) available; in this trivial example we don't have any */
     input_info.in_pkt_dir = NDPI_IN_PKT_DIR_UNKNOWN;
     input_info.seen_flow_beginning = NDPI_FLOW_BEGINNING_UNKNOWN;
-    malloc_size_stats = 1;
+    alloc_size_stats = 1;
     flow->detected_protocol = ndpi_detection_process_packet(workflow->ndpi_struct, ndpi_flow,
 							    iph ? (uint8_t *)iph : (uint8_t *)iph6,
 							    ipsize, time_ms, &input_info);
+
     if(monitoring_enabled)
       process_ndpi_monitoring_info(flow);
-    if(flow->detected_protocol.state == NDPI_STATE_CLASSIFIED ||
+    /* NOTE: NDPI_STATE_CLASSIFIED only means the library has enough info to
+       report a protocol - it does NOT mean the library is done with this
+       flow. Some dissectors (e.g. TLS's various post-handshake heuristics,
+       including AI-inference-over-TLS timing detection) deliberately keep
+       "extra_packets_func" set after classification to keep observing
+       Application Data well past that point. Stopping here regardless would
+       silently cut those heuristics off after the very first classified
+       packet - so only stop once the library itself is done with the flow
+       (extra_packets_func == NULL), or the safety packet-count cap fires. */
+    if((flow->detected_protocol.state == NDPI_STATE_CLASSIFIED &&
+	flow->ndpi_flow->extra_packets_func == NULL) ||
        enough_packets) {
 
       flow->detection_completed = 1;
@@ -2010,7 +2057,7 @@ static struct ndpi_proto packet_processing(struct ndpi_workflow * workflow,
     /* Let's try to save client-server direction */
     flow->current_pkt_from_client_to_server = input_info.in_pkt_dir;
 
-    malloc_size_stats = 0;
+    alloc_size_stats = 0;
   } else {
     flow->current_pkt_from_client_to_server = NDPI_IN_PKT_DIR_UNKNOWN; /* Unknown */
   }
@@ -2542,7 +2589,7 @@ struct ndpi_proto ndpi_workflow_process_packet(struct ndpi_workflow * workflow,
     const u_int8_t *l4ptr = (((const u_int8_t *) iph6) + sizeof(struct ndpi_ipv6hdr));
     u_int16_t ipsize = header->caplen - ip_offset;
 
-    if(ndpi_handle_ipv6_extension_headers(ipsize - sizeof(struct ndpi_ipv6hdr), &l4ptr, &ip_len, &proto) != 0) {
+    if(ndpi_handle_ipv6_extension_headers(NULL, iph6, ipsize - sizeof(struct ndpi_ipv6hdr), &l4ptr, &ip_len, &proto) != 0) {
       return(nproto);
     }
 
@@ -2726,10 +2773,14 @@ struct ndpi_proto ndpi_workflow_process_packet(struct ndpi_workflow * workflow,
     }
   }
 
+  pkt_timeval tv;
+  tv.tv_sec = header->ts.tv_sec;
+  tv.tv_usec = header->ts.tv_usec;
+
   /* process the packet */
   return(packet_processing(workflow, time_ms, vlan_id, tunnel_type, iph, iph6,
 			   header->caplen - ip_offset,
-			   header->caplen, header, packet, header->ts,
+			   header->caplen, header, packet, tv,
 			   flow_risk, flow));
 }
 

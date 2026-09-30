@@ -87,7 +87,7 @@
 
 #define MAX_DEFAULT_PORTS                                        5
 
-#define NDPI_EXCLUDE_DISSECTOR(mod,flow) exclude_dissector(mod, flow, mod->current_dissector_idx, __FILE__, __FUNCTION__, __LINE__)
+#define NDPI_EXCLUDE_DISSECTOR(mod,flow) exclude_dissector(mod, flow, mod->current_dissector_idx, __FILE__, __func__, __LINE__)
 
 /**
  * macro for getting the string len of a static string
@@ -194,8 +194,6 @@ static inline u_int64_t get_u_int64_t(const u_int8_t* X, int O)
 
 #define NDPI_MAX_NUM_TLS_APPL_BLOCKS            8
 
-//#define TLS_HANDLE_SIGNATURE_ALGORITMS 1
-
 #ifdef __APPLE__
 
 #include <libkern/OSByteOrder.h>
@@ -289,5 +287,12 @@ static inline u_int64_t get_u_int64_t(const u_int8_t* X, int O)
 
 /* Unused parameters can be silenced as follows */
 #define __ndpi_unused_param(x) (void)(x)
+
+/* Maximum number of plugins supported by nDPI */
+#define NDPI_MAX_NUM_PLUGINS    32
+
+/* JA3/4 Information */
+#define MAX_NUM_JA         128
+#define MAX_JA_STRLEN      256
 
 #endif /* __NDPI_DEFINE_INCLUDE_FILE__ */

@@ -33,6 +33,7 @@
 #include "third_party/include/hll.h"
 #include "third_party/include/kdtree.h"
 #include "third_party/include/ball.h"
+#include "third_party/include/isolation_forest.h"
 #include "ndpi_replace_printf.h"
 
 /* ********************************************************************************* */
@@ -152,6 +153,22 @@ float ndpi_data_average(struct ndpi_analyze_struct *s) {
     return(0);
 
   return((float)s->sum_total / (float)s->num_data_entries);
+}
+
+/* ********************************************************************************* */
+
+/*
+   Peak-to-Average Ratio (PAR)
+
+   A high PAR (typically > 10) indicates a highly bursty connection,
+   whereas a PAR near 1 indicates steady, uniform traffic.
+*/
+
+float ndpi_data_burstiness(struct ndpi_analyze_struct *s) {
+  if((!s) || (s->num_data_entries == 0))
+    return(0);
+
+  return((float)s->max_val / ndpi_data_average(s));
 }
 
 /* ********************************************************************************* */
@@ -303,7 +320,7 @@ void ndpi_data_print_window_values(struct ndpi_analyze_struct *s) {
 /* ********************************************************************************* */
 
 /*
-  Upload / download ration
+  Upload / download ratio
 
   -1  Download
   0   Mixed
@@ -2259,8 +2276,10 @@ bool ndpi_deserialize_ranking(ndpi_ranking *rank, const char *path) {
     if(rank->epochs) {
       n_read = fread(rank->epochs, rank->header.epochs_memory_len, 1, fd);
 
-      if(n_read != 1)
+      if(n_read != 1) {
+        ndpi_free(rank->epochs);
 	ret = false;
+      }
     } else
       ret = false;
   }
@@ -2391,4 +2410,197 @@ u_int16_t ndpi_ranking_add_epoch(ndpi_ranking *rank,
   }
 
   return(num_value_changed);
+}
+
+/* *********************** */
+/* *********************** */
+
+/**
+ * Create and fit a new Isolation Forest. This creates the model
+ * of the data we're modelling across all the features.
+ *
+ * @param data          Row-major matrix [n_samples × n_features]
+ * @param n_samples     Number of training samples
+ * @param n_features    Number of features per sample
+ * @param n_trees       Number of isolation trees (100–500 typical)
+ */
+void* ndpi_alloc_iforest(double **data, u_int32_t n_samples, u_int16_t n_features) {
+  /* We use some reasonable defaults to avoid making API too complex */
+  return((void*)build_forest(data, n_samples, n_features));
+}
+
+/**
+ * Frees a previously allocated isolation forest
+ *
+ * @param forest A forest created with ndpi_alloc_iforest()
+ */
+void ndpi_free_iforest(void *forest) {
+  free_forest((Forest*)forest);
+}
+
+/**
+ * Checks if a single sample is anomalous with respoect to the
+ * previously built model
+ *
+ * @param forest       A forest created with ndpi_alloc_iforest()
+ * @param sample       The data sample to analyze
+ * @param sample_score The computed score (out)
+ * @return The anomaly value (0..1 range), usually a value over 0.5 is an anomaly.
+ */
+double ndpi_iforest_score(void *_forest, double *sample) {
+  return(forest_compute_score((Forest*)_forest, sample));
+}
+
+/* *********************** */
+/* *********************** */
+
+ndpi_anomaly_model* ndpi_alloc_anomaly_model(u_int16_t n_features) {
+  ndpi_anomaly_model *m = ndpi_calloc(1, sizeof(ndpi_anomaly_model));
+
+  if(m)
+    m->n_features = n_features;
+
+  return(m);
+}
+
+/* *********************** */
+
+void ndpi_free_anomaly_model(ndpi_anomaly_model *m) {
+  if(m) {
+    if(m->training_data) ndpi_free(m->training_data);
+    ndpi_free(m);
+  }
+}
+
+/* *********************** */
+
+/*
+  The L1 norm, also known as the Manhattan norm or Taxicab norm, is a
+  mathematical function that calculates the "length" of a vector by
+  summing the absolute values of its individual components.  
+*/
+
+static void ndpi_normalize_vector_L1(double *training_data, u_int32_t num) {
+  u_int32_t i;
+  double l1_norm = 0;
+  
+  for(i=0; i<num; i++) l1_norm += training_data[i];
+  for(i=0; i<num; i++) training_data[i] /= l1_norm;
+}
+
+/* *********************** */
+
+#if 0
+/*
+  The L2 norm, also known as the Euclidean norm, is a standard mathematical way
+  to measure the length or magnitude of a vector in space. It represents the
+  shortest straight-line distance from the origin to a point in
+  𝑛-dimensional space.
+*/
+static void ndpi_normalize_vector_L2(double *training_data, u_int32_t num) {
+  u_int32_t i;
+  double l2_norm = 0;
+  
+  for(i=0; i<num; i++) l2_norm += training_data[i] * training_data[i];
+  l2_norm = sqrt(l2_norm);
+  for(i=0; i<num; i++) training_data[i] /= l2_norm;
+}
+#endif
+
+/* *********************** */
+
+bool ndpi_train_anomaly_model(ndpi_anomaly_model *m, double *training_data) {
+  if(!m || !training_data)
+    return(false);
+  u_int32_t len = sizeof(double) * m->n_features;
+
+  ndpi_normalize_vector_L1(training_data, m->n_features);
+  
+  if(m->training_data == NULL) {
+    /* Initial iteration */
+    m->training_data = (double*)ndpi_malloc(len);
+
+    if(m->training_data == NULL)
+      return(false);
+    else
+      memcpy(&m->training_data[0], training_data, len);
+
+    m->n_samples = 1, m->tot_memory += len;
+  } else {
+    u_int32_t i, new_len = len + m->tot_memory;
+    double *new_data = (double*)ndpi_realloc(m->training_data, new_len);
+
+    if(new_data == NULL)
+      return(false); /* Allocation failure */
+    else {
+      u_int32_t start_idx = len * m->n_samples;
+
+      m->training_data = new_data, m->tot_memory += len;
+
+      memcpy(&((u_int8_t*)m->training_data)[start_idx], training_data, len);
+    }
+
+    /* Compute distance */
+    for(i=0; i<m->n_samples; i++) {
+      u_int64_t distance = 0;
+      u_int32_t idx = i * m->n_features;
+      u_int32_t k;
+
+      for(k=0; k<m->n_features; k++) {
+#ifdef DEBUG
+	fprintf(stdout, "%u ", idx+k);
+#endif
+
+	distance += m->training_data[idx+k] * training_data[k]; /* dot product */
+      }
+
+      if(distance > m->max_distance) m->max_distance = distance;
+
+#ifdef DEBUG
+      fprintf(stdout, " [%llu / %llu]\n", distance, m->max_distance);
+#endif
+    }
+
+    m->n_samples++;
+
+#ifdef DEBUG
+    fprintf(stdout, "[n_samples %u] %llu\n\n", m->n_samples, m->max_distance);
+#endif
+  }
+
+  return(true);
+}
+
+/* ************************************************** */
+
+bool ndpi_compute_anomaly_score(ndpi_anomaly_model *m,
+				double *testing_data) {
+  u_int32_t i;
+  double max_distance = 0;
+
+  if(!m || !testing_data)
+    return(false);
+
+  ndpi_normalize_vector_L1(testing_data, m->n_features);
+  
+  for(i=0; i<m->n_samples; i++) {
+    double distance = 0;
+    u_int32_t idx = i * m->n_features;
+    u_int32_t k;
+
+    for(k=0; k<m->n_features; k++)
+      distance += m->training_data[idx+k] * testing_data[k]; /* dot product */
+
+    // fprintf(stderr, "distance: %llu / %llu\n", distance, m->max_distance);
+    if(distance > m->max_distance)
+      return(true /* anomaly */);
+
+    if(distance > max_distance) max_distance = distance;
+  }
+
+#ifdef DEBUG
+  fprintf(stderr, "max_distance: %llu / %llu\n", max_distance, m->max_distance);
+#endif
+  
+  return(false /* normal */);
 }

@@ -82,8 +82,9 @@ static void ndpi_search_smb_tcp(struct ndpi_detection_module_struct *ndpi_struct
 
 void init_smb_dissector(struct ndpi_detection_module_struct *ndpi_struct)
 {
-  register_dissector("SMB", ndpi_struct,
+  ndpi_register_dissector("SMB", ndpi_struct,
                      ndpi_search_smb_tcp,
                      NDPI_SELECTION_BITMASK_PROTOCOL_V4_V6_TCP_WITH_PAYLOAD_WITHOUT_RETRANSMISSION,
+                     DISSECTOR_LICENSE_LGPL,
                      1, NDPI_PROTOCOL_SMBV23);
 }

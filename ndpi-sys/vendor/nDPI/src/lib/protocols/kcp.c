@@ -36,7 +36,7 @@ struct kcp_header {
   uint32_t serial_number;
   uint32_t unacknowledged_serial_number;
   uint32_t length;
-  uint8_t data[0];
+  uint8_t data[];
 } PACK_OFF;
 
 enum kcp_commands {
@@ -94,8 +94,9 @@ static void ndpi_search_kcp(struct ndpi_detection_module_struct *ndpi_struct,
 
 void init_kcp_dissector(struct ndpi_detection_module_struct *ndpi_struct)
 {
-  register_dissector("KCP", ndpi_struct,
+  ndpi_register_dissector("KCP", ndpi_struct,
                      ndpi_search_kcp,
                      NDPI_SELECTION_BITMASK_PROTOCOL_V4_V6_TCP_OR_UDP_WITH_PAYLOAD_WITHOUT_RETRANSMISSION,
+                      DISSECTOR_LICENSE_LGPL,
                       1, NDPI_PROTOCOL_KCP);
 }

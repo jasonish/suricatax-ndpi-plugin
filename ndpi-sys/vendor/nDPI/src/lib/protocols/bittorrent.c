@@ -2,7 +2,7 @@
  * bittorrent.c
  *
  * Copyright (C) 2009-11 - ipoque GmbH
- * Copyright (C) 2011-25 - ntop.org
+ * Copyright (C) 2011-26 - ntop.org
  *
  * This file is part of nDPI, an open source deep packet inspection
  * library based on the OpenDPI and PACE technology by ipoque GmbH
@@ -455,11 +455,11 @@ static u_int8_t ndpi_int_search_bittorrent_tcp_zero(struct ndpi_detection_module
      * 20 BytesPattern : 4c 00 00 00 ff ff ff ff 57 00 00 00 00 00 00 00 20 00 00 00
      * 12 BytesPattern : 28 23 00 00 01 00 00 00 10 00 00 00
      * */
-    static const char pattern_20_bytes[20] = { 0x4c, 0x00, 0x00, 0x00, 0xff,
+    static const u_char pattern_20_bytes[20] = { 0x4c, 0x00, 0x00, 0x00, 0xff,
 					       0xff, 0xff, 0xff, 0x57, 0x00,
 					       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00
     };
-    static const char pattern_12_bytes[12] = { 0x28, 0x23, 0x00, 0x00, 0x01,
+    static const u_char pattern_12_bytes[12] = { 0x28, 0x23, 0x00, 0x00, 0x01,
 					       0x00, 0x00, 0x00, 0x10, 0x00,
 					       0x00, 0x00
     };
@@ -655,8 +655,9 @@ static void ndpi_search_bittorrent(struct ndpi_detection_module_struct *ndpi_str
 
 void init_bittorrent_dissector(struct ndpi_detection_module_struct *ndpi_struct)
 {
-  register_dissector("BitTorrent", ndpi_struct,
+  ndpi_register_dissector("BitTorrent", ndpi_struct,
                      ndpi_search_bittorrent,
                      NDPI_SELECTION_BITMASK_PROTOCOL_V4_V6_TCP_OR_UDP_WITH_PAYLOAD_WITHOUT_RETRANSMISSION,
+                     DISSECTOR_LICENSE_LGPL,
                      1, NDPI_PROTOCOL_BITTORRENT);
 }

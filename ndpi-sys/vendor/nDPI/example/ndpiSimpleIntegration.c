@@ -1,6 +1,6 @@
 /*
  *
- * Copyright (C) 2011-25 - ntop.org
+ * Copyright (C) 2011-26 - ntop.org
  *
  * nDPI is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -25,7 +25,7 @@
 #include <ndpi_api.h>
 #include <ndpi_main.h>
 #include <ndpi_typedefs.h>
-#include <pcap/pcap.h>
+#include <pcap.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
@@ -162,12 +162,7 @@ static struct nDPI_workflow * init_workflow(char const * const file_or_device)
   if (access(file_or_device, R_OK) != 0 && errno == ENOENT) {
     workflow->pcap_handle = pcap_open_live(file_or_device, /* 1536 */ 65535, 1, 250, pcap_error_buffer);
   } else {
-#ifdef WIN32
     workflow->pcap_handle = pcap_open_offline(file_or_device, pcap_error_buffer);
-#else
-    workflow->pcap_handle = pcap_open_offline_with_tstamp_precision(file_or_device, PCAP_TSTAMP_PRECISION_MICRO,
-								    pcap_error_buffer);
-#endif
   }
 
   if (workflow->pcap_handle == NULL) {
@@ -188,7 +183,7 @@ static struct nDPI_workflow * init_workflow(char const * const file_or_device)
     printf("pcap_setfilter error: '%s'\n", pcap_geterr(workflow->pcap_handle));
   }  
 
-  workflow->ndpi_struct = ndpi_init_detection_module(NULL);
+  workflow->ndpi_struct = ndpi_init_detection_module(NULL, NDPI_LICENSE_NOT_FOR_PROFIT_LGPL);
   if (workflow->ndpi_struct == NULL) {
     free_workflow(&workflow);
     return NULL;

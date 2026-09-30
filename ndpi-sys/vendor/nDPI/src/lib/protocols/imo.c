@@ -1,7 +1,7 @@
 /*
  * imo.c
  *
- * Copyright (C) 2019-24 - ntop.org
+ * Copyright (C) 2019-26 - ntop.org
  *
  * This file is part of nDPI, an open source deep packet inspection
  * library based on the OpenDPI and PACE technology by ipoque GmbH
@@ -60,7 +60,7 @@ static void ndpi_search_imo(struct ndpi_detection_module_struct *ndpi_struct, st
     NDPI_LOG_INFO(ndpi_struct, "found IMO\n");
     ndpi_int_imo_add_connection(ndpi_struct, flow);
   } else {
-    if(flow->num_processed_pkts > 5)
+    if(flow->num_processed_pkts > 10)
       NDPI_EXCLUDE_DISSECTOR(ndpi_struct, flow);
     else
       flow->l4.udp.imo_last_one_byte_pkt = 0;
@@ -69,9 +69,10 @@ static void ndpi_search_imo(struct ndpi_detection_module_struct *ndpi_struct, st
 
 
 void init_imo_dissector(struct ndpi_detection_module_struct *ndpi_struct) {
-  register_dissector("IMO", ndpi_struct,
+  ndpi_register_dissector("IMO", ndpi_struct,
                      ndpi_search_imo,
                      NDPI_SELECTION_BITMASK_PROTOCOL_V4_V6_UDP_WITH_PAYLOAD,
+                     DISSECTOR_LICENSE_LGPL,
                      1, NDPI_PROTOCOL_IMO);
 }
 

@@ -1,6 +1,6 @@
 /*
  *
- * Copyright (C) 2011-25 - ntop.org
+ * Copyright (C) 2011-26 - ntop.org
  *
  * This file is part of nDPI, an open source deep packet inspection
  * library based on the OpenDPI and PACE technology by ipoque GmbH
@@ -36,6 +36,8 @@ extern "C" {
 #define _NDPI_CONFIG_H_
 #endif
 
+#include "ndpi_usdt.h"
+
 /* NDPI_NODE */
 typedef struct node_t {
   char *key;
@@ -53,6 +55,12 @@ typedef struct {
   u_int16_t protocol_id;
 } ndpi_tls_cert_name_match;
 
+/* License under which a single dissector is released */
+enum ndpi_dissector_license_type {
+  DISSECTOR_LICENSE_LGPL = 0,
+  DISSECTOR_LICENSE_NTOP_DUAL_LICENSE,
+};
+
 struct call_function_struct {
   char name[16];                /* Used only for logging/debugging */
   void (*func) (struct ndpi_detection_module_struct *, struct ndpi_flow_struct *flow);
@@ -62,6 +70,7 @@ struct call_function_struct {
   u_int16_t first_protocol_id;  /* ID of the first protocol registered with this dissector.
                                    It is used ONLY for logging, because logging configuration
                                    is (still) for protocol, not for dissector */
+  enum ndpi_dissector_license_type dissector_license_type;
 };
 
 typedef struct default_ports_tree_node {
@@ -142,11 +151,6 @@ struct ndpi_packet_struct {
     packet_direction:1, empty_line_position_set:1, http_check_content:1, pad:4;
 };
 
-typedef struct ndpi_list_struct {
-  char *value;
-  struct ndpi_list_struct *next;
-} ndpi_list;
-
 #ifdef HAVE_NBPF
 typedef struct {
   void *tree; /* cast to nbpf_filter* */
@@ -207,7 +211,6 @@ struct ndpi_global_context {
 
 struct ndpi_detection_module_config_struct {
   int max_packets_to_process;
-  int direction_detect_enabled;
  /* In some networks, there are some anomalous TCP flows where
     the smallest ACK packets have some kind of zero padding.
     It looks like the IP and TCP headers in those frames wrongly consider the
@@ -238,6 +241,7 @@ struct ndpi_detection_module_config_struct {
   int tcp_fingerprint_enabled;
   int tcp_fingerprint_raw_enabled;
   int ndpi_fingerprint_enabled;
+  int ndpi_server_fingerprint_enabled;
   ndpi_fingerprint_format ndpi_fingerprint_format;
 
   char filename_config[CFG_MAX_LEN];
@@ -293,12 +297,17 @@ struct ndpi_detection_module_config_struct {
   int tls_cert_validity_enabled;
   int tls_cert_issuer_enabled;
   int tls_cert_subject_enabled;
-  int tls_broswer_enabled;
+  int tls_browser_enabled;
   int tls_ja3s_fingerprint_enabled;
   int tls_ja4c_fingerprint_enabled;
   int tls_ja4r_fingerprint_enabled;
+  int tls_ja_data_enabled;
+  int tls_ja_ignore_ephemeral_extensions;
+  int tls_ndpifp_ignore_sni_extension;
+  int tls_ndpifp_ignore_tcp_fingerprint;
   int tls_subclassification_enabled;
-  int tls_blocks_analysis_enabled;
+  int tls_max_num_blocks_to_analyze;
+  int tls_blocks_show_timing;
   int quic_subclassification_enabled;
 
   int smtp_opportunistic_tls_enabled;
@@ -314,6 +323,9 @@ struct ndpi_detection_module_config_struct {
   int sip_attribute_to_enabled;
   int sip_attribute_to_imsi_enabled;
 
+  int ssh_hassh_fingerprint_enabled;
+  int ssh_hassh_data_enabled;
+  
   int stun_opportunistic_tls_enabled;
   int stun_max_packets_extra_dissection;
   int rtp_max_packets_extra_dissection;
@@ -327,11 +339,16 @@ struct ndpi_detection_module_config_struct {
 
   int ssdp_metadata_enabled;
 
+  int ntp_metadata_enabled;
+
   int dns_subclassification_enabled;
   int dns_parse_response_enabled;
+  int dns_max_packets_extra_dissection;
+  int dns_custom_port;
 
   int http_parse_response_enabled;
   int http_subclassification_enabled;
+  int http_dga_url_enabled;
 
   int ookla_aggressiveness;
 
@@ -362,9 +379,10 @@ struct ndpi_detection_module_config_struct {
 
 struct ndpi_detection_module_struct {
   u_int64_t current_ts;
-  u_int16_t num_tls_blocks_to_follow;
-  u_int8_t skip_tls_blocks_until_change_cipher:1, finalized:1, _notused:6;
+  u_int8_t finalized:1, _notused:7;
   u_int8_t tls_certificate_expire_in_x_days;
+
+  enum ndpi_license_type license_type;
 
   void *user_data;
   char custom_category_labels[NUM_CUSTOM_CATEGORIES][CUSTOM_CATEGORY_LABEL_LEN];
@@ -464,10 +482,6 @@ struct ndpi_detection_module_struct {
   ndpi_proto_defaults_t *proto_defaults;
   u_int16_t proto_defaults_num_allocated;
 
-#ifdef CUSTOM_NDPI_PROTOCOLS
-  #include "../../../nDPI-custom/custom_ndpi_typedefs.h"
-#endif
-
   /* GeoIP */
   void *mmdb_city, *mmdb_as;
   u_int8_t mmdb_city_loaded, mmdb_as_loaded;
@@ -488,6 +502,15 @@ struct ndpi_detection_module_struct {
   struct {
     ndpi_filter *cache, *cache_shadow;
   } dns_hostname;
+
+
+  struct {
+    u_int num_loaded_plugins /* 0 ... NDPI_MAX_NUM_PLUGINS-1 */;
+    struct {
+      NDPIProtocolPluginEntryPoint *pluginPtr;
+      NDPIProtocolPluginEntryPoint *entryPoint;
+    } plugin[NDPI_MAX_NUM_PLUGINS];
+  } proto_plugins;
 };
 
 /* Used by ndpi_set_proto_subprotocols */
@@ -587,9 +610,9 @@ struct ndpi_detection_module_struct {
 /* Protocol bitmasks */
 
 #define NDPI_SELECTION_BITMASK_PROTOCOL_IP			(1<<0)
-#define NDPI_SELECTION_BITMASK_PROTOCOL_INT_TCP			(1<<1)
-#define NDPI_SELECTION_BITMASK_PROTOCOL_INT_UDP			(1<<2)
-#define NDPI_SELECTION_BITMASK_PROTOCOL_INT_TCP_OR_UDP		(1<<3)
+#define NDPI_SELECTION_BITMASK_PROTOCOL_L4_TCP			(1<<1)
+#define NDPI_SELECTION_BITMASK_PROTOCOL_L4_UDP			(1<<2)
+#define NDPI_SELECTION_BITMASK_PROTOCOL_L4_TCP_OR_UDP		(1<<3)
 #define NDPI_SELECTION_BITMASK_PROTOCOL_HAS_PAYLOAD		(1<<4)
 #define NDPI_SELECTION_BITMASK_PROTOCOL_NO_TCP_RETRANSMISSION	(1<<5)
 #define NDPI_SELECTION_BITMASK_PROTOCOL_IPV6			(1<<6)
@@ -598,19 +621,19 @@ struct ndpi_detection_module_struct {
 /* now combined detections */
 
 /* v4 */
-#define NDPI_SELECTION_BITMASK_PROTOCOL_TCP (NDPI_SELECTION_BITMASK_PROTOCOL_IP | NDPI_SELECTION_BITMASK_PROTOCOL_INT_TCP)
-#define NDPI_SELECTION_BITMASK_PROTOCOL_UDP (NDPI_SELECTION_BITMASK_PROTOCOL_IP | NDPI_SELECTION_BITMASK_PROTOCOL_INT_UDP)
-#define NDPI_SELECTION_BITMASK_PROTOCOL_TCP_OR_UDP (NDPI_SELECTION_BITMASK_PROTOCOL_IP | NDPI_SELECTION_BITMASK_PROTOCOL_INT_TCP_OR_UDP)
+#define NDPI_SELECTION_BITMASK_PROTOCOL_TCP (NDPI_SELECTION_BITMASK_PROTOCOL_IP | NDPI_SELECTION_BITMASK_PROTOCOL_L4_TCP)
+#define NDPI_SELECTION_BITMASK_PROTOCOL_UDP (NDPI_SELECTION_BITMASK_PROTOCOL_IP | NDPI_SELECTION_BITMASK_PROTOCOL_L4_UDP)
+#define NDPI_SELECTION_BITMASK_PROTOCOL_TCP_OR_UDP (NDPI_SELECTION_BITMASK_PROTOCOL_IP | NDPI_SELECTION_BITMASK_PROTOCOL_L4_TCP_OR_UDP)
 
 /* v6 */
-#define NDPI_SELECTION_BITMASK_PROTOCOL_V6_TCP (NDPI_SELECTION_BITMASK_PROTOCOL_IPV6 | NDPI_SELECTION_BITMASK_PROTOCOL_INT_TCP)
-#define NDPI_SELECTION_BITMASK_PROTOCOL_V6_UDP (NDPI_SELECTION_BITMASK_PROTOCOL_IPV6 | NDPI_SELECTION_BITMASK_PROTOCOL_INT_UDP)
-#define NDPI_SELECTION_BITMASK_PROTOCOL_V6_TCP_OR_UDP (NDPI_SELECTION_BITMASK_PROTOCOL_IPV6 | NDPI_SELECTION_BITMASK_PROTOCOL_INT_TCP_OR_UDP)
+#define NDPI_SELECTION_BITMASK_PROTOCOL_V6_TCP (NDPI_SELECTION_BITMASK_PROTOCOL_IPV6 | NDPI_SELECTION_BITMASK_PROTOCOL_L4_TCP)
+#define NDPI_SELECTION_BITMASK_PROTOCOL_V6_UDP (NDPI_SELECTION_BITMASK_PROTOCOL_IPV6 | NDPI_SELECTION_BITMASK_PROTOCOL_L4_UDP)
+#define NDPI_SELECTION_BITMASK_PROTOCOL_V6_TCP_OR_UDP (NDPI_SELECTION_BITMASK_PROTOCOL_IPV6 | NDPI_SELECTION_BITMASK_PROTOCOL_L4_TCP_OR_UDP)
 
 /* v4 or v6 */
-#define NDPI_SELECTION_BITMASK_PROTOCOL_V4_V6_TCP (NDPI_SELECTION_BITMASK_PROTOCOL_IPV4_OR_IPV6 | NDPI_SELECTION_BITMASK_PROTOCOL_INT_TCP)
-#define NDPI_SELECTION_BITMASK_PROTOCOL_V4_V6_UDP (NDPI_SELECTION_BITMASK_PROTOCOL_IPV4_OR_IPV6 | NDPI_SELECTION_BITMASK_PROTOCOL_INT_UDP)
-#define NDPI_SELECTION_BITMASK_PROTOCOL_V4_V6_TCP_OR_UDP (NDPI_SELECTION_BITMASK_PROTOCOL_IPV4_OR_IPV6 | NDPI_SELECTION_BITMASK_PROTOCOL_INT_TCP_OR_UDP)
+#define NDPI_SELECTION_BITMASK_PROTOCOL_V4_V6_TCP (NDPI_SELECTION_BITMASK_PROTOCOL_IPV4_OR_IPV6 | NDPI_SELECTION_BITMASK_PROTOCOL_L4_TCP)
+#define NDPI_SELECTION_BITMASK_PROTOCOL_V4_V6_UDP (NDPI_SELECTION_BITMASK_PROTOCOL_IPV4_OR_IPV6 | NDPI_SELECTION_BITMASK_PROTOCOL_L4_UDP)
+#define NDPI_SELECTION_BITMASK_PROTOCOL_V4_V6_TCP_OR_UDP (NDPI_SELECTION_BITMASK_PROTOCOL_IPV4_OR_IPV6 | NDPI_SELECTION_BITMASK_PROTOCOL_L4_TCP_OR_UDP)
 
 /* does it make sense to talk about udp with payload ??? have you ever seen empty udp packets ? */
 #define NDPI_SELECTION_BITMASK_PROTOCOL_UDP_WITH_PAYLOAD		(NDPI_SELECTION_BITMASK_PROTOCOL_UDP | NDPI_SELECTION_BITMASK_PROTOCOL_HAS_PAYLOAD)
@@ -638,17 +661,19 @@ struct ndpi_detection_module_struct {
 int is_proto_enabled(struct ndpi_detection_module_struct *ndpi_str, int protoId);
 int is_flowrisk_enabled(struct ndpi_detection_module_struct *ndpi_str, ndpi_risk_enum flowrisk_id);
 
-void register_dissector(char *dissector_name, struct ndpi_detection_module_struct *ndpi_str,
+void ndpi_register_dissector(char *dissector_name, struct ndpi_detection_module_struct *ndpi_str,
                         void (*func)(struct ndpi_detection_module_struct *,
                                      struct ndpi_flow_struct *flow),
                         const NDPI_SELECTION_BITMASK_PROTOCOL_SIZE ndpi_selection_bitmask,
+                        enum ndpi_dissector_license_type dissector_license_type,
                         int num_protocol_ids, ...);
 void exclude_dissector(struct ndpi_detection_module_struct *ndpi_str, struct ndpi_flow_struct *flow,
                        u_int16_t dissector_idx, const char *_file, const char *_func, int _line) ;
 
 char *strptime(const char *s, const char *format, struct tm *tm);
 
-u_int8_t iph_is_valid_and_not_fragmented(const struct ndpi_iphdr *iph, const u_int16_t ipsize);
+u_int8_t iph_is_valid_and_not_fragmented(struct ndpi_detection_module_struct *ndpi_str,
+                                         const struct ndpi_iphdr *iph, const u_int16_t ipsize);
 
 int current_pkt_from_client_to_server(const struct ndpi_detection_module_struct *ndpi_str, const struct ndpi_flow_struct *flow);
 int current_pkt_from_server_to_client(const struct ndpi_detection_module_struct *ndpi_str, const struct ndpi_flow_struct *flow);
@@ -677,7 +702,6 @@ char *ndpi_user_agent_set(struct ndpi_flow_struct *flow, const u_int8_t *value, 
 
 void ndpi_parse_packet_line_info(struct ndpi_detection_module_struct *ndpi_struct,
 					  struct ndpi_flow_struct *flow);
-void ndpi_parse_packet_line_info_any(struct ndpi_detection_module_struct *ndpi_struct);
 
 void load_common_alpns(struct ndpi_detection_module_struct *ndpi_str);
 u_int8_t is_a_common_alpn(struct ndpi_detection_module_struct *ndpi_str,
@@ -737,6 +761,8 @@ ndpi_protocol_breed_t get_proto_breed(struct ndpi_detection_module_struct *ndpi_
 ndpi_protocol_category_t get_proto_category(struct ndpi_detection_module_struct *ndpi_str,
                                             ndpi_master_app_protocol proto);
 
+u_int8_t ndpi_is_multi_or_broadcast(struct ndpi_flow_struct *flow);
+
   /* TLS */
 int processClientServerHello(struct ndpi_detection_module_struct *ndpi_struct,
                              struct ndpi_flow_struct *flow, uint32_t quic_version);
@@ -762,6 +788,25 @@ int signal_search_into_cache(struct ndpi_detection_module_struct* ndpi_struct,
                             struct ndpi_flow_struct* flow);
 void signal_add_to_cache(struct ndpi_detection_module_struct *ndpi_struct,
                         struct ndpi_flow_struct *flow);
+
+/* DNS */
+
+struct ndpi_dns_tcp_reasm {
+  u_int8_t *buf;
+  u_int16_t cur_len;
+  u_int16_t msg_len; /* 0 = length prefix not yet parsed */
+};
+
+struct ndpi_dns_tcp_reasm_state {
+  struct ndpi_dns_tcp_reasm dir[2];
+};
+
+void ndpi_search_dns(struct ndpi_detection_module_struct *ndpi_struct,
+                     struct ndpi_flow_struct *flow);
+
+/* HTTP */
+void ndpi_search_http_tcp(struct ndpi_detection_module_struct *ndpi_struct,
+                          struct ndpi_flow_struct *flow);
 
 /* QUIC */
 int quic_len(const uint8_t *buf, uint64_t *value);
@@ -808,6 +853,10 @@ u_int64_t mining_make_lru_cache_key(struct ndpi_flow_struct *flow);
 /* nDPI fingerprint */
 char* ndpi_compute_ndpi_flow_fingerprint(struct ndpi_detection_module_struct *ndpi_str, struct ndpi_flow_struct *flow);
 
+/* Plugins */
+void ndpi_unload_protocol_plugins(struct ndpi_detection_module_struct *ndpi_struct);
+u_int ndpi_init_protocol_plugins(struct ndpi_detection_module_struct *ndpi_struct);
+  
 /* Protocols init */
 void init_diameter_dissector(struct ndpi_detection_module_struct *ndpi_struct);
 void init_afp_dissector(struct ndpi_detection_module_struct *ndpi_struct);
@@ -839,7 +888,6 @@ void init_h323_dissector(struct ndpi_detection_module_struct *ndpi_struct);
 void init_hots_dissector(struct ndpi_detection_module_struct *ndpi_struct);
 void init_http_dissector(struct ndpi_detection_module_struct *ndpi_struct);
 void init_iax_dissector(struct ndpi_detection_module_struct *ndpi_struct);
-void init_icecast_dissector(struct ndpi_detection_module_struct *ndpi_struct);
 void init_ipp_dissector(struct ndpi_detection_module_struct *ndpi_struct);
 void init_irc_dissector(struct ndpi_detection_module_struct *ndpi_struct);
 void init_jabber_dissector(struct ndpi_detection_module_struct *ndpi_struct);
@@ -915,7 +963,6 @@ void init_vxlan_dissector(struct ndpi_detection_module_struct *ndpi_struct);
 void init_whois_das_dissector(struct ndpi_detection_module_struct *ndpi_struct);
 void init_xbox_dissector(struct ndpi_detection_module_struct *ndpi_struct);
 void init_xdmcp_dissector(struct ndpi_detection_module_struct *ndpi_struct);
-void init_zattoo_dissector(struct ndpi_detection_module_struct *ndpi_struct);
 void init_zmq_dissector(struct ndpi_detection_module_struct *ndpi_struct);
 void init_stracraft_dissector(struct ndpi_detection_module_struct *ndpi_struct);
 void init_ubntac2_dissector(struct ndpi_detection_module_struct *ndpi_struct);
@@ -933,7 +980,6 @@ void init_nintendo_dissector(struct ndpi_detection_module_struct *ndpi_struct);
 void init_csgo_dissector(struct ndpi_detection_module_struct *ndpi_struct);
 void init_checkmk_dissector(struct ndpi_detection_module_struct *ndpi_struct);
 void init_cpha_dissector(struct ndpi_detection_module_struct *ndpi_struct);
-void init_apple_push_dissector(struct ndpi_detection_module_struct *ndpi_struct);
 void init_amazon_video_dissector(struct ndpi_detection_module_struct *ndpi_struct);
 void init_whatsapp_dissector(struct ndpi_detection_module_struct *ndpi_struct);
 void init_ajp_dissector(struct ndpi_detection_module_struct *ndpi_struct);
@@ -1049,6 +1095,7 @@ void init_bfcp_dissector(struct ndpi_detection_module_struct *ndpi_struct);
 void init_iqiyi_dissector(struct ndpi_detection_module_struct *ndpi_struct);
 void init_egd_dissector(struct ndpi_detection_module_struct *ndpi_struct);
 void init_cod_mobile_dissector(struct ndpi_detection_module_struct *ndpi_struct);
+void init_freefire_dissector(struct ndpi_detection_module_struct *ndpi_struct);
 void init_zug_dissector(struct ndpi_detection_module_struct *ndpi_struct);
 void init_jrmi_dissector(struct ndpi_detection_module_struct *ndpi_struct);
 void init_ripe_atlas_dissector(struct ndpi_detection_module_struct *ndpi_struct);
@@ -1067,16 +1114,46 @@ void init_gearup_booster_dissector(struct ndpi_detection_module_struct *ndpi_str
 void init_msdo_dissector(struct ndpi_detection_module_struct *ndpi_struct);
 void init_melsec_dissector(struct ndpi_detection_module_struct *ndpi_struct);
 void init_hamachi_dissector(struct ndpi_detection_module_struct *ndpi_struct);
+void init_netmotion_dissector(struct ndpi_detection_module_struct *ndpi_struct);
 void init_glbp_dissector(struct ndpi_detection_module_struct *ndpi_struct);
 void init_easyweather_dissector(struct ndpi_detection_module_struct *ndpi_struct);
 void init_mudfish_dissector(struct ndpi_detection_module_struct *ndpi_struct);
 void init_tristation_dissector(struct ndpi_detection_module_struct *ndpi_struct);
 void init_samsung_sdp_dissector(struct ndpi_detection_module_struct *ndpi_struct);
 void init_matter_dissector(struct ndpi_detection_module_struct *ndpi_struct);
+void init_json_dissector(struct ndpi_detection_module_struct *ndpi_struct);
+void init_msgpack_dissector(struct ndpi_detection_module_struct *ndpi_struct);
+void init_sbe_dissector(struct ndpi_detection_module_struct *ndpi_struct);
+void init_iris_dissector(struct ndpi_detection_module_struct *ndpi_struct);
+void init_yggdrasil_dissector(struct ndpi_detection_module_struct *ndpi_struct);
+void init_meshtastic_dissector(struct ndpi_detection_module_struct *ndpi_struct);
+void init_nebula_dissector(struct ndpi_detection_module_struct *ndpi_struct);
 
-#ifdef CUSTOM_NDPI_PROTOCOLS
-  #include "../../../nDPI-custom/custom_ndpi_private.h"
+enum cfg_param_type {
+  CFG_PARAM_ENABLE_DISABLE = 0,
+  CFG_PARAM_INT,
+  CFG_PARAM_PROTOCOL_ENABLE_DISABLE,
+  CFG_PARAM_FILENAME_CONFIG, /* We call ndpi_set_config() immediately for each row in it */
+  CFG_PARAM_FLOWRISK_ENABLE_DISABLE,
+};
+
+typedef int (*cfg_calback)(struct ndpi_detection_module_struct *ndpi_str, void *_variable, const char *proto, const char *param);
+
+struct cfg_param {
+  char *proto;
+  char *param;
+  char *default_value;
+  char *min_value;
+  char *max_value;
+  enum cfg_param_type type;
+  int offset;
+  cfg_calback fn_callback;
+};
+
+#ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+extern const struct cfg_param cfg_params[];
 #endif
+
 
 #endif
 

@@ -1,7 +1,7 @@
 /*
  * ndpi_main.h
  *
- * Copyright (C) 2011-25 - ntop.org
+ * Copyright (C) 2011-26 - ntop.org
  *
  * This file is part of nDPI, an open source deep packet inspection
  * library based on the OpenDPI and PACE technology by ipoque GmbH
@@ -46,20 +46,6 @@ extern "C" {
   void ndpi_twalk(const void *, void (*)(const void *, ndpi_VISIT, int, void*), void *user_data);
   void ndpi_tdestroy(void *vrootp, void (*freefct)(void *));
 
-  u_int16_t ntohs_ndpi_bytestream_to_number(const u_int8_t * str,
-					    u_int16_t max_chars_to_read,
-					    u_int16_t * bytes_read);
-
-  u_int32_t ndpi_bytestream_to_number(const u_int8_t * str, u_int16_t max_chars_to_read,
-				      u_int16_t * bytes_read);
-  u_int64_t ndpi_bytestream_to_number64(const u_int8_t * str, u_int16_t max_chars_to_read,
-					u_int16_t * bytes_read);
-  u_int64_t ndpi_bytestream_dec_or_hex_to_number64(const u_int8_t * str,
-						   u_int16_t max_chars_to_read,
-						   u_int16_t * bytes_read);
-  u_int32_t ndpi_bytestream_to_ipv4(const u_int8_t * str, u_int16_t max_chars_to_read,
-				    u_int16_t * bytes_read);
-
   extern void ndpi_set_proto_subprotocols(struct ndpi_detection_module_struct *ndpi_mod,
                                      int protoId, ...);
 
@@ -80,7 +66,9 @@ extern "C" {
 #define ndpi_match_strprefix(payload, payload_len, str)			\
   ndpi_match_prefix((payload), (payload_len), (str), (sizeof(str)-1))
 
-  int ndpi_handle_ipv6_extension_headers(u_int16_t l3len,
+  int ndpi_handle_ipv6_extension_headers(struct ndpi_detection_module_struct *ndpi_str,
+                                         const struct ndpi_ipv6hdr *ip6h,
+                                         u_int16_t l3len,
 					 const u_int8_t ** l4ptr, u_int16_t * l4len,
 					 u_int8_t * nxt_hdr);
 
@@ -89,7 +77,7 @@ extern "C" {
   void ndpi_unset_risk(struct ndpi_detection_module_struct *ndpi_str, struct ndpi_flow_struct *flow, ndpi_risk_enum r);
   int ndpi_isset_risk(struct ndpi_flow_struct *flow, ndpi_risk_enum r);
   int ndpi_is_printable_buffer(u_int8_t const * const buf, size_t len);
-  int ndpi_normalize_printable_string(char * const str, size_t len);
+  int ndpi_normalize_printable_string(char * const str, size_t len, char *invalid_character);
   bool ndpi_is_valid_hostname(char * const str, size_t len);
 
 #define NDPI_ENTROPY_PLAINTEXT(entropy) (entropy < 4.941f)

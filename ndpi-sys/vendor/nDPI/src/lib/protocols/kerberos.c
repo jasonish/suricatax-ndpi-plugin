@@ -1,7 +1,7 @@
 /*
  * kerberos.c
  *
- * Copyright (C) 2011-25 - ntop.org
+ * Copyright (C) 2011-26 - ntop.org
  * Copyright (C) 2009-11 - ipoque GmbH
  *
  * This file is part of nDPI, an open source deep packet inspection
@@ -184,7 +184,7 @@ static void krb_strncpy_lower(char * const dst, size_t dst_siz,
      {
        dst[i] = '?';
      } else {
-       dst[i] = tolower(src[i]);
+       dst[i] = tolower((unsigned char)src[i]);
      }
    }
 }
@@ -698,8 +698,9 @@ static int ndpi_search_kerberos_extra(struct ndpi_detection_module_struct *ndpi_
 }
 
 void init_kerberos_dissector(struct ndpi_detection_module_struct *ndpi_struct) {
-  register_dissector("Kerberos", ndpi_struct,
+  ndpi_register_dissector("Kerberos", ndpi_struct,
                      ndpi_search_kerberos,
                      NDPI_SELECTION_BITMASK_PROTOCOL_V4_V6_TCP_OR_UDP_WITH_PAYLOAD_WITHOUT_RETRANSMISSION,
+                      DISSECTOR_LICENSE_LGPL,
                       1, NDPI_PROTOCOL_KERBEROS);
 }

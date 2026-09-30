@@ -16,7 +16,7 @@ jobs:
     env:
       RUST_TOOLCHAIN: 1.75.0
       RUST_TARGET: x86_64-unknown-linux-gnu
-      ARTIFACT_NAME: suricatax80-ndpi5-plugin-linux-x86_64
+      ARTIFACT_NAME: suricatax80-ndpi6-plugin-linux-x86_64
       ARTIFACT_FILE: ndpi.so
 
     steps:

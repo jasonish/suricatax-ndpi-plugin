@@ -1,0 +1,105 @@
+Summary: L7 DPI library
+Name: ndpi
+Version: @PACKAGE_VERSION@
+Release: %{buildnumber}
+License: LGPL
+Group: Networking/Utilities
+URL: http://www.ntop.org/products/deep-packet-inspection/ndpi/
+Source: ndpi-%{version}.tgz
+Packager: Luca Deri <deri@ntop.org>
+BuildRoot:  %{_tmppath}/%{name}-%{version}-root
+%{?el9:Requires: glibc >= 2.3.4 numactl coreutils @GEOIP_DEP@ }
+%{?el8:Requires: glibc >= 2.3.4 numactl coreutils @GEOIP_DEP@ }
+%{?el7:Requires: glibc >= 2.3.4 numactl coreutils @GEOIP_DEP@ }
+
+AutoReqProv: no
+
+%define debug_package %{nil}
+
+# Make sure .build-id is not part of the package
+%define _build_id_links none
+
+%description
+nDPI Open and Extensible LGPLv3 Deep Packet Inspection Library.
+
+%package dev
+Summary: Header files and development libraries for %{name}
+Group: Development/Libraries
+Requires: %{name} = %{version}-%{release}
+
+%description dev
+This package contains the header files and development libraries
+for %{name}. If you like to develop programs using %{name},
+you will need to install %{name}-dev.
+
+%prep
+
+%setup -q
+
+# Execution order:
+# install:    pre -> (copy) -> post
+# upgrade:    pre -> (copy) -> post -> preun (old) -> (delete old) -> postun (old)
+# un-install:                          preun       -> (delete)     -> postun
+
+%pre
+
+%post
+
+%build
+PATH=/usr/bin:/bin:/usr/sbin:/sbin
+
+%define includedir    /usr/include/ndpi
+
+# Default and fallback
+%define libdir /usr/lib64
+#%{?el7:%define libdir /usr/lib}
+
+%define bindir        /usr/bin
+
+%install
+PATH=/usr/bin:/bin:/usr/sbin:/sbin
+if [ -d $RPM_BUILD_ROOT ]; then
+	\rm -rf $RPM_BUILD_ROOT
+fi
+mkdir -p $RPM_BUILD_ROOT%{includedir}
+mkdir -p $RPM_BUILD_ROOT%{libdir}/pkgconfig
+mkdir -p $RPM_BUILD_ROOT%{bindir}
+cd $HOME/nDPI; make DESTDIR=$RPM_BUILD_ROOT install;
+mkdir -p $RPM_BUILD_ROOT/usr/share/ndpi
+cp $HOME/nDPI/lists/public_suffix_list.dat $RPM_BUILD_ROOT/usr/share/ndpi
+mkdir -p $RPM_BUILD_ROOT/etc/ld.so.conf.d
+cp $HOME/nDPI/packages/etc/ld.so.conf.d/ndpi.conf $RPM_BUILD_ROOT/etc/ld.so.conf.d
+rm -rf $RPM_BUILD_ROOT/usr/sbin/ndpi
+rm -f $RPM_BUILD_ROOT/usr/bin/ndpiSimpleIntegration
+strip $RPM_BUILD_ROOT%{bindir}/*
+rm -fr %{buildroot}%{includedir}/ndpi_win32.h
+if test -f $RPM_BUILD_ROOT/usr/lib/pkgconfig/libndpi.pc; then rm -f $RPM_BUILD_ROOT/usr/lib/pkgconfig/libndpi.pc; fi
+if test -f $RPM_BUILD_ROOT/usr/lib64/pkgconfig/libndpi.pc; then rm -f $RPM_BUILD_ROOT/usr/lib64/pkgconfig/libndpi.pc; fi
+
+%clean
+rm -fr $RPM_BUILD_ROOT
+
+%files
+%defattr(-, root, root)
+
+%{libdir}/libndpi.so
+%{libdir}/libndpi.so.@MAJOR_RELEASE@
+%{libdir}/libndpi.so.@PACKAGE_VERSION@
+/usr/bin/ndpiReader
+/usr/share/ndpi/ndpiCustomCategory.txt
+/usr/share/ndpi/ndpiProtos.txt
+/usr/share/ndpi/public_suffix_list.dat
+/etc/ld.so.conf.d/ndpi.conf
+/usr/include/ndpi*
+
+%preun
+
+%files dev
+%defattr(-,root,root,-)
+
+%{includedir}
+%{libdir}/libndpi.a
+
+%changelog
+* Mon Nov 19 2018 Alfredo Cardigliano <cardigliano@ntop.org> 2.5
+- Initial package version

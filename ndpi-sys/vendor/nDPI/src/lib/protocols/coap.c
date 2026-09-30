@@ -151,9 +151,10 @@ static void ndpi_search_coap(struct ndpi_detection_module_struct *ndpi_struct,
  */
 void init_coap_dissector (struct ndpi_detection_module_struct *ndpi_struct)
 {
-  register_dissector("COAP", ndpi_struct,
+  ndpi_register_dissector("COAP", ndpi_struct,
                      ndpi_search_coap,
                      NDPI_SELECTION_BITMASK_PROTOCOL_V4_V6_UDP_WITH_PAYLOAD,
+                     DISSECTOR_LICENSE_LGPL,
                      1, NDPI_PROTOCOL_COAP);
 }
 

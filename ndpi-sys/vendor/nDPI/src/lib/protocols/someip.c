@@ -56,21 +56,19 @@ enum SOMEIP_RETURN_CODES {
   E_RETURN_CODE_LEGAL_THRESHOLD = 0x40  //return codes from 0x40 (inclusive) and upwards are illegal.
 };
 
-enum SPECIAL_MESSAGE_IDS {
-  MSG_MAGIC_COOKIE = 0xffff0000,
-  MSG_MAGIC_COOKIE_ACK = 0xffff8000,
-  MSG_SD = 0xffff8100
-};
+/* SPECIAL_MESSAGE_IDS */
+const u_int32_t MSG_MAGIC_COOKIE = 0xffff0000;
+const u_int32_t MSG_MAGIC_COOKIE_ACK = 0xffff8000;
+const u_int32_t MSG_SD = 0xffff8100;
 
 enum PROTOCOL_VERSION{
   LEGAL_PROTOCOL_VERSION = 0x01
 };
 
-enum MAGIC_COOKIE_CONSTANTS{
-  MC_REQUEST_ID = 0xDEADBEEF,
-  MC_LENGTH = 0x08,
-  MC_INTERFACE_VERSION = 0x01
-};
+/* MAGIC_COOKIE_CONST */
+const u_int32_t MC_REQUEST_ID = 0xDEADBEEF;
+const u_int32_t MC_LENGTH = 0x08;
+const u_int32_t MC_INTERFACE_VERSION = 0x01;
 
 /**
  * Entry point when protocol is identified.
@@ -195,9 +193,10 @@ static void ndpi_search_someip(struct ndpi_detection_module_struct *ndpi_struct,
  */
 void init_someip_dissector (struct ndpi_detection_module_struct *ndpi_struct)
 {
-  register_dissector("SOME/IP", ndpi_struct,
+  ndpi_register_dissector("SOME/IP", ndpi_struct,
                      ndpi_search_someip,
                      NDPI_SELECTION_BITMASK_PROTOCOL_V4_V6_TCP_OR_UDP_WITH_PAYLOAD_WITHOUT_RETRANSMISSION,
+                     DISSECTOR_LICENSE_LGPL,
                      1, NDPI_PROTOCOL_SOMEIP);
 }
 

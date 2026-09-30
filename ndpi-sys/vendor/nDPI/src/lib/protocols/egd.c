@@ -54,8 +54,9 @@ static void ndpi_search_egd(struct ndpi_detection_module_struct *ndpi_struct, st
 
 void init_egd_dissector(struct ndpi_detection_module_struct *ndpi_struct)
 {
-  register_dissector("EthernetGlobalData", ndpi_struct,
+  ndpi_register_dissector("EthernetGlobalData", ndpi_struct,
                      ndpi_search_egd,
                      NDPI_SELECTION_BITMASK_PROTOCOL_UDP_WITH_PAYLOAD,
+                     DISSECTOR_LICENSE_LGPL,
                      1, NDPI_PROTOCOL_EGD);
 }

@@ -1,7 +1,7 @@
 /*
  * ndpi_protocol_ids.h
  *
- * Copyright (C) 2011-25 - ntop.org
+ * Copyright (C) 2011-26 - ntop.org
  *
  * This file is part of nDPI, an open source deep packet inspection
  * library based on the OpenDPI and PACE technology by ipoque GmbH
@@ -84,7 +84,7 @@ typedef enum {
   NDPI_PROTOCOL_ICECAST               = 52,
   NDPI_PROTOCOL_CPHA                  = 53,
   NDPI_PROTOCOL_IQIYI                 = 54,
-  NDPI_PROTOCOL_ZATTOO                = 55,
+  NDPI_PROTOCOL_MESHTASTIC            = 55,
   NDPI_PROTOCOL_YANDEX_MARKET         = 56,
   NDPI_PROTOCOL_YANDEX_DISK           = 57,
   NDPI_PROTOCOL_DISCORD               = 58,
@@ -497,12 +497,31 @@ typedef enum {
   NDPI_PROTOCOL_AWS_DYNAMODB          = 465,
   NDPI_PROTOCOL_ESPN                  = 466,
   NDPI_PROTOCOL_AKAMAI                = 467,
+  NDPI_PROTOCOL_JSON                  = 468,
+  NDPI_PROTOCOL_MSGPACK               = 469,
+  NDPI_PROTOCOL_GITHUB_COPILOT        = 470,
+  NDPI_PROTOCOL_GITHUB_PACKAGES       = 471,
+  NDPI_PROTOCOL_GITHUB_ACTIONS        = 472,
+  NDPI_PROTOCOL_YOUTUBE_KIDS          = 473,
+  NDPI_PROTOCOL_SBE                   = 474,
+  NDPI_PROTOCOL_IRIS                  = 475,
+  NDPI_PROTOCOL_LIBP2P                = 476,
+  NDPI_PROTOCOL_NETMOTION             = 477,
+  NDPI_PROTOCOL_PROTON                = 478,
+  NDPI_PROTOCOL_PROTON_MAIL           = 479,
+  NDPI_PROTOCOL_PROTON_PASS           = 480,
+  NDPI_PROTOCOL_PROTON_DRIVE          = 481,
+  NDPI_PROTOCOL_PROTON_CALENDAR       = 482,
+  NDPI_PROTOCOL_PROTON_DOCS           = 483,
+  NDPI_PROTOCOL_PROTON_WALLET         = 484,
+  NDPI_PROTOCOL_PROTON_LUMO           = 485,
+  NDPI_PROTOCOL_PROTON_MEET           = 486,
+  NDPI_PROTOCOL_YGGDRASIL             = 487,
+  NDPI_PROTOCOL_NEBULA                = 488,
+  NDPI_PROTOCOL_DISCORD_CALL          = 489,
+  NDPI_PROTOCOL_FREEFIRE              = 490,
 
   /* If you add a new protocol, please update the documentation at doc/protocols.rst, too! */
-
-#ifdef CUSTOM_NDPI_PROTOCOLS
-#include "../../../nDPI-custom/custom_ndpi_protocol_ids.h"
-#endif
 
   /*
     IMPORTANT

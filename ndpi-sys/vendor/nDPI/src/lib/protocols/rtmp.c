@@ -93,9 +93,10 @@ static void ndpi_search_rtmp(struct ndpi_detection_module_struct *ndpi_struct, s
 
 void init_rtmp_dissector(struct ndpi_detection_module_struct *ndpi_struct)
 {
-  register_dissector("RTMP", ndpi_struct,
+  ndpi_register_dissector("RTMP", ndpi_struct,
                      ndpi_search_rtmp,
                      NDPI_SELECTION_BITMASK_PROTOCOL_V4_V6_TCP_WITH_PAYLOAD_WITHOUT_RETRANSMISSION,
+                     DISSECTOR_LICENSE_LGPL,
                      1, NDPI_PROTOCOL_RTMP);
 }
 

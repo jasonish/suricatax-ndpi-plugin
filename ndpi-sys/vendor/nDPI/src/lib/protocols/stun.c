@@ -1,7 +1,7 @@
 /*
  * stun.c
  *
- * Copyright (C) 2011-25 - ntop.org
+ * Copyright (C) 2011-26 - ntop.org
  *
  * This file is part of nDPI, an open source deep packet inspection
  * library based on the OpenDPI and PACE technology by ipoque GmbH
@@ -610,6 +610,16 @@ int is_stun(struct ndpi_detection_module_struct *ndpi_struct,
       *app_proto = NDPI_PROTOCOL_MSTEAMS_CALL;
       break;
 
+    case 0x8022: /* SOFTWARE */
+      if(off + 4 + len <= payload_length) {
+	if(ndpi_strnstr((const char *)&payload[off + 4], "Cisco-Spark", len) != NULL)
+	  *app_proto = NDPI_PROTOCOL_WEBEX; /* Webex (formerly Cisco Spark) */
+	else if(ndpi_strnstr((const char *)&payload[off + 4], "discord-sfu", len) != NULL)
+          *app_proto = NDPI_PROTOCOL_DISCORD_CALL;
+      }
+
+      break;
+
     case 0x8029: /* ICE-CONTROLLED */
       if(current_pkt_from_client_to_server(ndpi_struct, flow))
         flow->stun.is_client_controlling = 0;
@@ -1069,8 +1079,8 @@ static int stun_telegram_search_again(struct ndpi_detection_module_struct *ndpi_
   struct ndpi_packet_struct *packet = &ndpi_struct->packet;
   const u_int8_t *orig_payload;
   u_int16_t orig_payload_length;
-  char pattern[12] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-                       0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+  u_char pattern[12] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                         0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
   u_int16_t length;
 
   NDPI_LOG_DBG2(ndpi_struct, "[T] Packet counter %d protos %d/%d Monitoring? %d\n",
@@ -1350,8 +1360,9 @@ void signal_add_to_cache(struct ndpi_detection_module_struct *ndpi_struct,
 /* ************************************************************ */
 
 void init_stun_dissector(struct ndpi_detection_module_struct *ndpi_struct) {
-  register_dissector("STUN", ndpi_struct,
+  ndpi_register_dissector("STUN", ndpi_struct,
                      ndpi_search_stun,
                      NDPI_SELECTION_BITMASK_PROTOCOL_V4_V6_TCP_OR_UDP_WITH_PAYLOAD_WITHOUT_RETRANSMISSION,
+                     DISSECTOR_LICENSE_LGPL,
                      1, NDPI_PROTOCOL_STUN);
 }

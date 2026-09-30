@@ -178,7 +178,7 @@ static int dissect_softether_host_fqdn(struct ndpi_flow_struct *flow,
   u_int8_t const *payload = packet->payload;
   u_int16_t payload_len = packet->payload_packet_len;
   u_int32_t tuple_count;
-  size_t value_siz, hostname_len, fqdn_len;
+  size_t value_siz, hostname_len = 0, fqdn_len;
   struct softether_value val1, val2;
   uint8_t got_hostname = 0, got_fqdn = 0;
   const char *hostname_ptr = NULL, *fqdn_ptr = NULL;
@@ -348,8 +348,9 @@ static int ndpi_search_softether_again(struct ndpi_detection_module_struct *ndpi
 /* ***************************************************** */
   
 void init_softether_dissector(struct ndpi_detection_module_struct *ndpi_struct) {
-  register_dissector("Softether", ndpi_struct,
+  ndpi_register_dissector("Softether", ndpi_struct,
                      ndpi_search_softether,
                      NDPI_SELECTION_BITMASK_PROTOCOL_V4_V6_UDP_WITH_PAYLOAD,
+                     DISSECTOR_LICENSE_LGPL,
                      1, NDPI_PROTOCOL_SOFTETHER);
 }
