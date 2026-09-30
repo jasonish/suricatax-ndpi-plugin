@@ -239,53 +239,6 @@ fn sanitize_json_keys(value: &mut serde_json::Value) {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::validate_inner_json;
-
-    #[test]
-    fn validate_inner_json_reserializes_valid_fragment() {
-        let formatted =
-            validate_inner_json(br#""ndpi":{"proto":"HTTP","hostname":"example.com"}"#).unwrap();
-
-        let mut wrapped = Vec::new();
-        wrapped.push(b'{');
-        wrapped.extend_from_slice(formatted.to_bytes());
-        wrapped.push(b'}');
-
-        let value: serde_json::Value = serde_json::from_slice(&wrapped).unwrap();
-        assert_eq!(value["ndpi"]["proto"], "HTTP");
-        assert_eq!(value["ndpi"]["hostname"], "example.com");
-    }
-
-    #[test]
-    fn validate_inner_json_replaces_dots_in_field_names() {
-        let formatted = validate_inner_json(
-            br#""ndpi":{"ONE.TWO.THREE":"value","nested.object":{"array.value":[{"leaf.name":1}]}}"#,
-        )
-        .unwrap();
-
-        let mut wrapped = Vec::new();
-        wrapped.push(b'{');
-        wrapped.extend_from_slice(formatted.to_bytes());
-        wrapped.push(b'}');
-
-        let value: serde_json::Value = serde_json::from_slice(&wrapped).unwrap();
-        assert_eq!(value["ndpi"]["ONE_TWO_THREE"], "value");
-        assert_eq!(
-            value["ndpi"]["nested_object"]["array_value"][0]["leaf_name"],
-            1
-        );
-        assert!(value["ndpi"].get("ONE.TWO.THREE").is_none());
-    }
-
-    #[test]
-    fn validate_inner_json_rejects_invalid_fragment() {
-        assert!(validate_inner_json(br#""ndpi":{"hostname":"unterminated}"#).is_none());
-        assert!(validate_inner_json(b"").is_none());
-    }
-}
-
 impl Drop for Flow {
     fn drop(&mut self) {
         unsafe {
@@ -353,3 +306,50 @@ pub fn protocols_equal(
 
 pub type Protocol = ffi::ndpi_master_app_protocol;
 pub type Risk = ffi::ndpi_risk;
+
+#[cfg(test)]
+mod tests {
+    use super::validate_inner_json;
+
+    #[test]
+    fn validate_inner_json_reserializes_valid_fragment() {
+        let formatted =
+            validate_inner_json(br#""ndpi":{"proto":"HTTP","hostname":"example.com"}"#).unwrap();
+
+        let mut wrapped = Vec::new();
+        wrapped.push(b'{');
+        wrapped.extend_from_slice(formatted.to_bytes());
+        wrapped.push(b'}');
+
+        let value: serde_json::Value = serde_json::from_slice(&wrapped).unwrap();
+        assert_eq!(value["ndpi"]["proto"], "HTTP");
+        assert_eq!(value["ndpi"]["hostname"], "example.com");
+    }
+
+    #[test]
+    fn validate_inner_json_replaces_dots_in_field_names() {
+        let formatted = validate_inner_json(
+            br#""ndpi":{"ONE.TWO.THREE":"value","nested.object":{"array.value":[{"leaf.name":1}]}}"#,
+        )
+        .unwrap();
+
+        let mut wrapped = Vec::new();
+        wrapped.push(b'{');
+        wrapped.extend_from_slice(formatted.to_bytes());
+        wrapped.push(b'}');
+
+        let value: serde_json::Value = serde_json::from_slice(&wrapped).unwrap();
+        assert_eq!(value["ndpi"]["ONE_TWO_THREE"], "value");
+        assert_eq!(
+            value["ndpi"]["nested_object"]["array_value"][0]["leaf_name"],
+            1
+        );
+        assert!(value["ndpi"].get("ONE.TWO.THREE").is_none());
+    }
+
+    #[test]
+    fn validate_inner_json_rejects_invalid_fragment() {
+        assert!(validate_inner_json(br#""ndpi":{"hostname":"unterminated}"#).is_none());
+        assert!(validate_inner_json(b"").is_none());
+    }
+}
