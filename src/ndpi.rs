@@ -406,6 +406,81 @@ fn sanitize_json_keys(value: &mut serde_json::Value) {
     }
 }
 
+// SAFETY: An nDPI flow is owned exclusively by its Suricata flow's storage,
+// which is only used by one thread at a time under the flow lock.
+unsafe impl Send for Flow {}
+
+impl Drop for Flow {
+    fn drop(&mut self) {
+        unsafe {
+            ffi::ndpi_flow_free(self.ptr.as_ptr().cast());
+        }
+    }
+}
+
+pub fn parse_protocol(
+    name: *const c_char,
+    license: LicenseType,
+) -> Option<ffi::ndpi_master_app_protocol> {
+    if name.is_null() {
+        return None;
+    }
+
+    let mut module = DetectionModule::new(license, None)?;
+    let proto = unsafe { module.protocol_by_name(name) };
+    let unknown = unsafe { ffi::ndpi_is_proto_unknown(proto) };
+    if unknown {
+        None
+    } else {
+        Some(proto)
+    }
+}
+
+pub unsafe fn parse_risk(arg: *const c_char) -> Option<ffi::ndpi_risk> {
+    if arg.is_null() {
+        return None;
+    }
+
+    let arg = CStr::from_ptr(arg);
+    let bytes = arg.to_bytes();
+    if bytes.is_empty() {
+        return None;
+    }
+
+    if bytes[0].is_ascii_digit() {
+        return std::str::from_utf8(bytes)
+            .ok()?
+            .parse::<ffi::ndpi_risk>()
+            .ok();
+    }
+
+    let mut risk_mask: ffi::ndpi_risk = 0;
+    for token in bytes.split(|b| *b == b',') {
+        if token.is_empty() {
+            continue;
+        }
+        let token = CString::new(token).ok()?;
+        let risk_id = ffi::ndpi_code2risk(token.as_ptr());
+        if risk_id >= ffi::ndpi_risk_enum_NDPI_MAX_RISK {
+            return None;
+        }
+        risk_mask |= 1u64 << risk_id;
+    }
+
+    Some(risk_mask)
+}
+
+pub fn protocols_equal(
+    to_check: ffi::ndpi_master_app_protocol,
+    to_match: ffi::ndpi_master_app_protocol,
+    exact_match_only: bool,
+) -> bool {
+    unsafe { ffi::ndpi_is_proto_equals(to_check, to_match, exact_match_only) }
+}
+
+pub type Protocol = ffi::ndpi_master_app_protocol;
+pub type Risk = ffi::ndpi_risk;
+
 #[cfg(test)]
 mod tests {
     use super::{classification_final, ffi, is_classified, validate_inner_json, LicenseType};
@@ -526,78 +601,3 @@ mod tests {
         assert!(validate_inner_json(b"").is_none());
     }
 }
-
-// SAFETY: An nDPI flow is owned exclusively by its Suricata flow's storage,
-// which is only used by one thread at a time under the flow lock.
-unsafe impl Send for Flow {}
-
-impl Drop for Flow {
-    fn drop(&mut self) {
-        unsafe {
-            ffi::ndpi_flow_free(self.ptr.as_ptr().cast());
-        }
-    }
-}
-
-pub fn parse_protocol(
-    name: *const c_char,
-    license: LicenseType,
-) -> Option<ffi::ndpi_master_app_protocol> {
-    if name.is_null() {
-        return None;
-    }
-
-    let mut module = DetectionModule::new(license, None)?;
-    let proto = unsafe { module.protocol_by_name(name) };
-    let unknown = unsafe { ffi::ndpi_is_proto_unknown(proto) };
-    if unknown {
-        None
-    } else {
-        Some(proto)
-    }
-}
-
-pub unsafe fn parse_risk(arg: *const c_char) -> Option<ffi::ndpi_risk> {
-    if arg.is_null() {
-        return None;
-    }
-
-    let arg = CStr::from_ptr(arg);
-    let bytes = arg.to_bytes();
-    if bytes.is_empty() {
-        return None;
-    }
-
-    if bytes[0].is_ascii_digit() {
-        return std::str::from_utf8(bytes)
-            .ok()?
-            .parse::<ffi::ndpi_risk>()
-            .ok();
-    }
-
-    let mut risk_mask: ffi::ndpi_risk = 0;
-    for token in bytes.split(|b| *b == b',') {
-        if token.is_empty() {
-            continue;
-        }
-        let token = CString::new(token).ok()?;
-        let risk_id = ffi::ndpi_code2risk(token.as_ptr());
-        if risk_id >= ffi::ndpi_risk_enum_NDPI_MAX_RISK {
-            return None;
-        }
-        risk_mask |= 1u64 << risk_id;
-    }
-
-    Some(risk_mask)
-}
-
-pub fn protocols_equal(
-    to_check: ffi::ndpi_master_app_protocol,
-    to_match: ffi::ndpi_master_app_protocol,
-    exact_match_only: bool,
-) -> bool {
-    unsafe { ffi::ndpi_is_proto_equals(to_check, to_match, exact_match_only) }
-}
-
-pub type Protocol = ffi::ndpi_master_app_protocol;
-pub type Risk = ffi::ndpi_risk;
