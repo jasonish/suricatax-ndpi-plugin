@@ -2,8 +2,8 @@
 name = "suricatax-ndpi-plugin"
 
 # We're playing with versions here, not really sure how to make it work.
-# - Suricata 8.0, plugin version 22 for nDPI 6.0
-version = "8.0.22+ndpi6.0"
+# - Suricata 8.0, plugin version 23 for nDPI 6.0
+version = "8.0.23+ndpi6.0"
 
 edition = "2021"
 rust-version = "1.75.0"

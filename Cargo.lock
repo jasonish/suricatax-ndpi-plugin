@@ -138,7 +138,7 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "suricatax-ndpi-plugin"
-version = "8.0.22+ndpi6.0"
+version = "8.0.23+ndpi6.0"
 dependencies = [
  "ndpi-sys",
  "serde_json",
