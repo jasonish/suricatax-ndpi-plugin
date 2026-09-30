@@ -19,7 +19,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install build dependencies
         run: |
@@ -46,7 +46,7 @@ jobs:
           ls -l dist/
 
       - name: Upload plugin artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ env.ARTIFACT_NAME }}
           path: dist/${{ env.ARTIFACT_FILE }}
