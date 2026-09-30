@@ -19,7 +19,7 @@ MSRV: Rust 1.75.0.
 This crate depends on the `suricatax80-plugin-utils` crate.
 
 ```sh
-cargo build --release
+cargo build --release --locked
 ```
 
 The plugin shared object is written to:
