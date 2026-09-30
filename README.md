@@ -35,6 +35,26 @@ plugins:
   - /path/to/target/release/libndpi.so
 ```
 
+## Licensing
+
+The plugin's own handwritten Rust code is licensed under **LGPL-3.0-only**.
+See [LGPLv3](LICENSES/LGPL-3.0-only.txt) and the
+[GPLv3 text it incorporates](LICENSES/GPL-3.0-only.txt). This grant does not
+relicense nDPI, generated bindings, or other third-party code.
+
+The binary plugin statically embeds nDPI. Its components retain their respective
+licenses, including ntop's [component-specific terms](ndpi-sys/vendor/nDPI/README.license.md).
+The `LGPL-3.0-only AND LicenseRef-nDPI-Dual-License` string reported at runtime
+describes the plugin/nDPI bundle, not the license of each Rust source file.
+Here, `LicenseRef-nDPI-Dual-License` refers to those ntop terms. This string is
+not a complete third-party license inventory or a claim of license compatibility.
+
+### Known GPLv2-only compatibility issue
+
+Combining this LGPLv3 plugin with GPL-2.0-only Suricata creates a license
+incompatibility absent additional permissions. Consult your legal team before
+redistributing the combined work.
+
 ## nDPI License Type
 
 Starting with nDPI 6.0, some nDPI dissectors (such as TLS, QUIC, DNS and DHCP)

@@ -8,7 +8,8 @@ version = "8.0.24+ndpi6.0"
 edition = "2021"
 rust-version = "1.75.0"
 description = "Suricata 8.0.x nDPI 6 plugin"
-license = "GPL-2.0-only"
+# License of the plugin source; bundled dependencies retain their own terms.
+license = "LGPL-3.0-only"
 readme = "README.md"
 publish = false
 build = "build.rs"
