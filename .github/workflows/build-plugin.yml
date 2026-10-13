@@ -8,13 +8,25 @@ on:
 
 jobs:
   build:
-    name: Build Linux x86_64 plugin
+    name: Build Linux ${{ matrix.arch }} plugin
     runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            target: x86_64-unknown-linux-gnu
+            builder: cargo
+            artifact: ndpi.so
+          - arch: aarch64
+            target: aarch64-unknown-linux-gnu
+            builder: cross
+            artifact: ndpi-aarch64.so
 
     env:
       RUST_TOOLCHAIN: 1.75.0
-      RUST_TARGET: x86_64-unknown-linux-gnu
-      ARTIFACT_NAME: ndpi.so
+      RUST_TARGET: ${{ matrix.target }}
+      ARTIFACT_NAME: ${{ matrix.artifact }}
       ARTIFACT_FILE: ndpi.so
 
     steps:
@@ -36,8 +48,12 @@ jobs:
           test "$(uname -s)" = "Linux"
           test "$(uname -m)" = "x86_64"
 
+      - name: Install cross
+        if: matrix.builder == 'cross'
+        run: cargo install cross --version 0.2.5 --locked
+
       - name: Build plugin
-        run: cargo build --release --locked --target "$RUST_TARGET"
+        run: ${{ matrix.builder }} build --release --locked --target "$RUST_TARGET"
 
       - name: Stage artifact
         run: |
